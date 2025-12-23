@@ -1,0 +1,63 @@
+name: Check
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUTF8: "1"
+
+jobs:
+  check:
+    name: Check
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v1
+        with:
+          # IMPORTANT: pin a modern uv that supports PEP 735 dependency groups
+          # (older uv versions will ignore [dependency-groups] and dev tools like ruff/pytest)
+          version: "0.9.18"
+          enable-cache: true
+
+      - name: Ensure Python from .python-version
+        run: |
+          # uv reads .python-version automatically
+          $version = (Get-Content .python-version).Trim()
+          uv python install $version
+          uv python list
+
+      - name: Cache .venv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: ${{ runner.os }}-venv-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+
+      - name: Sync dependencies
+        # Use the committed uv.lock; do not mutate it in CI.
+        run: uv sync --dev --frozen
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Run tests
+        run: uv run pytest --maxfail=1
