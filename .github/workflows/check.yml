@@ -37,7 +37,16 @@ jobs:
           # IMPORTANT: pin a modern uv that supports PEP 735 dependency groups
           # (older uv versions will ignore [dependency-groups] and dev tools like ruff/pytest)
           version: "0.9.18"
-          enable-cache: true
+
+      - name: Cache uv
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/uv
+            ~/.local/share/uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('.python-version') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-
 
       - name: Ensure Python from .python-version
         run: |
@@ -51,6 +60,8 @@ jobs:
         with:
           path: .venv
           key: ${{ runner.os }}-venv-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-venv-
 
       - name: Sync dependencies
         # Use the committed uv.lock; do not mutate it in CI.
@@ -60,4 +71,4 @@ jobs:
         run: uv run ruff check .
 
       - name: Run tests
-        run: uv run pytest --maxfail=1
+        run: uv run pytest -vv --cov=umanager --cov-report=term-missing --cov-report=xml --maxfail=1
