@@ -35,6 +35,13 @@ class UsbBaseDeviceService(UsbBaseDeviceProtocol):
 
     _wmi_provider = wmi.WMI()
 
+    def __init__(self) -> None:
+        self._cached_usb_pnp_entities: list[_PnPEntity] | None = None
+        self.refresh()
+
+    def refresh(self) -> None:
+        self._cached_usb_pnp_entities = self._scan_usb_pnp_entities_uncached()
+
     def list_base_device_ids(self) -> list[UsbDeviceId]:
         entities = self._scan_usb_pnp_entities()
         res = [UsbDeviceId(instance_id=e.PNPDeviceID) for e in entities]
@@ -96,6 +103,12 @@ class UsbBaseDeviceService(UsbBaseDeviceProtocol):
         )
 
     def _scan_usb_pnp_entities(self) -> list[_PnPEntity]:
+        if self._cached_usb_pnp_entities is None:
+            self.refresh()
+        assert self._cached_usb_pnp_entities is not None
+        return self._cached_usb_pnp_entities
+
+    def _scan_usb_pnp_entities_uncached(self) -> list[_PnPEntity]:
         entities: list[_PnPEntity] = []
 
         for candidate in self._wmi_provider.Win32_PnPEntity():
