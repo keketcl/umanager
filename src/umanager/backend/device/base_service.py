@@ -52,6 +52,14 @@ class UsbBaseDeviceService(UsbBaseDeviceProtocol):
             raise FileNotFoundError(f"USB device not found: {device_id.instance_id}")
 
         parsed = self._parse_usb_ids(device_id.instance_id)
+        vendor_id = parsed.vendor_id
+        product_id = parsed.product_id
+        if vendor_id is None or product_id is None:
+            fallback_vendor_id, fallback_product_id = RegistryDeviceUtil.get_usb_vendor_product_id(
+                device_id.instance_id
+            )
+            vendor_id = vendor_id or fallback_vendor_id
+            product_id = product_id or fallback_product_id
         manufacturer = getattr(entity, "Manufacturer", None)
         name = getattr(entity, "Name", None)
         description = getattr(entity, "Description", None)
@@ -75,8 +83,8 @@ class UsbBaseDeviceService(UsbBaseDeviceProtocol):
 
         return UsbBaseDeviceInfo(
             id=device_id,
-            vendor_id=parsed.vendor_id,
-            product_id=parsed.product_id,
+            vendor_id=vendor_id,
+            product_id=product_id,
             manufacturer=manufacturer,
             product=name,
             serial_number=parsed.serial_number,

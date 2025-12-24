@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Optional
@@ -37,22 +38,73 @@ class RegistryDeviceUtil:
     DIGCF_PRESENT = 0x00000002
     DIGCF_ALLCLASSES = 0x00000004
 
-    # SetupAPI registry-backed device property ids.
     SPDRP_LOCATION_INFORMATION = 0x0000000D
     SPDRP_BUSNUMBER = 0x00000015
 
     _fns: _SetupApiFunctions | None = None
+    _cfg_fns: "_CfgMgr32Functions | None" = None
+
+    _VID_PATTERN = re.compile(r"VID_([0-9A-Fa-f]{4})")
+    _PID_PATTERN = re.compile(r"PID_([0-9A-Fa-f]{4})")
 
     @classmethod
     def get_device_location_information(cls, instance_id: str) -> Optional[str]:
-        return cls._setupapi_get_device_property_string(
+        return cls._setupapi_get_device_property_string_with_parent_fallback(
             instance_id,
             cls.SPDRP_LOCATION_INFORMATION,
         )
 
     @classmethod
     def get_device_bus_number(cls, instance_id: str) -> Optional[int]:
-        return cls._setupapi_get_device_property_dword(instance_id, cls.SPDRP_BUSNUMBER)
+        return cls._setupapi_get_device_property_dword_with_parent_fallback(
+            instance_id,
+            cls.SPDRP_BUSNUMBER,
+        )
+
+    @classmethod
+    def get_usb_vendor_product_id(cls, instance_id: str) -> tuple[Optional[str], Optional[str]]:
+        vendor_id: Optional[str] = None
+        product_id: Optional[str] = None
+
+        for candidate_id in cls._iter_instance_id_with_ancestors(instance_id):
+            if vendor_id is None:
+                vid_match = cls._VID_PATTERN.search(candidate_id)
+                if vid_match:
+                    vendor_id = vid_match.group(1).upper()
+
+            if product_id is None:
+                pid_match = cls._PID_PATTERN.search(candidate_id)
+                if pid_match:
+                    product_id = pid_match.group(1).upper()
+
+            if vendor_id is not None and product_id is not None:
+                break
+
+        return vendor_id, product_id
+
+    @classmethod
+    def _setupapi_get_device_property_string_with_parent_fallback(
+        cls,
+        instance_id: str,
+        prop: int,
+    ) -> Optional[str]:
+        for candidate_id in cls._iter_instance_id_with_ancestors(instance_id):
+            val = cls._setupapi_get_device_property_string(candidate_id, prop)
+            if val is not None:
+                return val
+        return None
+
+    @classmethod
+    def _setupapi_get_device_property_dword_with_parent_fallback(
+        cls,
+        instance_id: str,
+        prop: int,
+    ) -> Optional[int]:
+        for candidate_id in cls._iter_instance_id_with_ancestors(instance_id):
+            val = cls._setupapi_get_device_property_dword(candidate_id, prop)
+            if val is not None:
+                return val
+        return None
 
     @classmethod
     def _setupapi_get_device_property_string(cls, instance_id: str, prop: int) -> Optional[str]:
@@ -71,6 +123,94 @@ class RegistryDeviceUtil:
     @classmethod
     def _normalize_instance_id(cls, instance_id: str) -> str:
         return instance_id.replace("\\\\", "\\")
+
+    @dataclass(frozen=True, slots=True)
+    class _CfgMgr32Functions:
+        CM_Locate_DevNodeW: Callable[..., int]
+        CM_Get_Parent: Callable[..., int]
+        CM_Get_Device_IDW: Callable[..., int]
+
+    @classmethod
+    def _get_cfgmgr32_functions(cls) -> "_CfgMgr32Functions":
+        if cls._cfg_fns is not None:
+            return cls._cfg_fns
+
+        cfg = ctypes.WinDLL("cfgmgr32", use_last_error=True)
+
+        CM_Locate_DevNodeW = cfg.CM_Locate_DevNodeW
+        CM_Locate_DevNodeW.argtypes = [
+            ctypes.POINTER(ctypes.c_ulong),
+            ctypes.c_wchar_p,
+            ctypes.c_ulong,
+        ]
+        CM_Locate_DevNodeW.restype = ctypes.c_ulong
+
+        CM_Get_Parent = cfg.CM_Get_Parent
+        CM_Get_Parent.argtypes = [
+            ctypes.POINTER(ctypes.c_ulong),
+            ctypes.c_ulong,
+            ctypes.c_ulong,
+        ]
+        CM_Get_Parent.restype = ctypes.c_ulong
+
+        CM_Get_Device_IDW = cfg.CM_Get_Device_IDW
+        CM_Get_Device_IDW.argtypes = [
+            ctypes.c_ulong,
+            ctypes.c_wchar_p,
+            ctypes.c_ulong,
+            ctypes.c_ulong,
+        ]
+        CM_Get_Device_IDW.restype = ctypes.c_ulong
+
+        cls._cfg_fns = cls._CfgMgr32Functions(
+            CM_Locate_DevNodeW=CM_Locate_DevNodeW,
+            CM_Get_Parent=CM_Get_Parent,
+            CM_Get_Device_IDW=CM_Get_Device_IDW,
+        )
+        return cls._cfg_fns
+
+    @classmethod
+    def _iter_instance_id_with_ancestors(cls, instance_id: str, *, max_depth: int = 10):
+        normalized = cls._normalize_instance_id(instance_id)
+        yield normalized
+
+        parents = cls._get_parent_instance_ids(normalized, max_depth=max_depth)
+        for p in parents:
+            yield p
+
+    @classmethod
+    def _get_parent_instance_ids(cls, instance_id: str, *, max_depth: int) -> list[str]:
+        cfg = cls._get_cfgmgr32_functions()
+
+        CR_SUCCESS = 0x00000000
+        CM_LOCATE_DEVNODE_NORMAL = 0x00000000
+
+        devinst = ctypes.c_ulong(0)
+        cr = cfg.CM_Locate_DevNodeW(ctypes.byref(devinst), instance_id, CM_LOCATE_DEVNODE_NORMAL)
+        if cr != CR_SUCCESS:
+            return []
+
+        res: list[str] = []
+        cur = devinst
+        for _ in range(max_depth):
+            parent = ctypes.c_ulong(0)
+            cr = cfg.CM_Get_Parent(ctypes.byref(parent), cur.value, 0)
+            if cr != CR_SUCCESS:
+                break
+
+            buf = ctypes.create_unicode_buffer(4096)
+            cr = cfg.CM_Get_Device_IDW(parent.value, buf, len(buf), 0)
+            if cr != CR_SUCCESS:
+                break
+
+            parent_id = buf.value
+            if not parent_id:
+                break
+
+            res.append(parent_id)
+            cur = parent
+
+        return res
 
     @classmethod
     def _get_setupapi_functions(cls) -> _SetupApiFunctions:
