@@ -7,6 +7,7 @@ from .protocol import (
     UsbStorageDeviceProtocol,
     UsbVolumeInfo,
 )
+from .storage_service import UsbStorageDeviceService
 
 __all__ = [
     "UsbDeviceId",
@@ -16,4 +17,5 @@ __all__ = [
     "UsbVolumeInfo",
     "UsbStorageDeviceInfo",
     "UsbStorageDeviceProtocol",
+    "UsbStorageDeviceService",
 ]

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Protocol
 
@@ -44,11 +44,14 @@ class UsbVolumeInfo:
 
 
 @dataclass(frozen=True, slots=True)
-class UsbStorageDeviceInfo(UsbBaseDeviceInfo):
-    volumes: list[UsbVolumeInfo] = None  # type: ignore[assignment]
+class UsbStorageDeviceInfo:
+    base: UsbBaseDeviceInfo
+    volumes: list[UsbVolumeInfo] = field(default_factory=list)
 
 
 class UsbStorageDeviceProtocol(Protocol):
+    def refresh(self) -> None: ...
+
     def get_storage_device_info(self, device_id: UsbDeviceId) -> UsbStorageDeviceInfo: ...
 
     def list_storage_device_ids(self) -> list[UsbDeviceId]: ...

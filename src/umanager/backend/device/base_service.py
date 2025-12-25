@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Optional, Protocol
+from typing import Any, Optional, Protocol
 
 import wmi
 
@@ -10,7 +10,7 @@ from .protocol import UsbBaseDeviceInfo, UsbBaseDeviceProtocol, UsbDeviceId
 from .registry import RegistryDeviceUtil
 
 
-class _PnPEntity(Protocol):
+class PnPEntity(Protocol):
     PNPDeviceID: str
     Name: Optional[str]
     Manufacturer: Optional[str]
@@ -33,26 +33,27 @@ class UsbBaseDeviceService(UsbBaseDeviceProtocol):
     _VID_PATTERN = re.compile(r"VID_([0-9A-Fa-f]{4})")
     _PID_PATTERN = re.compile(r"PID_([0-9A-Fa-f]{4})")
 
-    _wmi_provider = wmi.WMI()
+    _wmi_provider: Any
+    _usb_pnp_entities_cache: Optional[list[PnPEntity]]
 
     def __init__(self) -> None:
-        self._cached_usb_pnp_entities: list[_PnPEntity] | None = None
-        self.refresh()
+        self._wmi_provider = wmi.WMI()
+        self._usb_pnp_entities_cache = None
 
     def refresh(self) -> None:
-        self._cached_usb_pnp_entities = self._scan_usb_pnp_entities_uncached()
+        self._usb_pnp_entities_cache = None
 
     def list_base_device_ids(self) -> list[UsbDeviceId]:
-        entities = self._scan_usb_pnp_entities()
+        entities = self.get_usb_pnp_entities()
         res = [UsbDeviceId(instance_id=e.PNPDeviceID) for e in entities]
 
         res.sort(key=lambda d: d.instance_id.casefold())
         return res
 
     def get_base_device_info(self, device_id: UsbDeviceId) -> UsbBaseDeviceInfo:
-        entity: _PnPEntity | None = None
-        for candidate in self._scan_usb_pnp_entities():
-            if getattr(candidate, "PNPDeviceID", None) == device_id.instance_id:
+        entity: PnPEntity | None = None
+        for candidate in self.get_usb_pnp_entities():
+            if candidate.PNPDeviceID == device_id.instance_id:
                 entity = candidate
                 break
         if entity is None:
@@ -102,27 +103,25 @@ class UsbBaseDeviceService(UsbBaseDeviceProtocol):
             description=description or name,
         )
 
-    def _scan_usb_pnp_entities(self) -> list[_PnPEntity]:
-        if self._cached_usb_pnp_entities is None:
-            self.refresh()
-        assert self._cached_usb_pnp_entities is not None
-        return self._cached_usb_pnp_entities
+    def get_usb_pnp_entities(self) -> list[PnPEntity]:
+        if not self._usb_pnp_entities_cache:
+            self._usb_pnp_entities_cache = self._scan_usb_pnp_entities_uncached()
 
-    def _scan_usb_pnp_entities_uncached(self) -> list[_PnPEntity]:
-        entities: list[_PnPEntity] = []
+        return self._usb_pnp_entities_cache
 
-        for candidate in self._wmi_provider.Win32_PnPEntity():
-            instance_id = getattr(candidate, "PNPDeviceID", None)
-            if not instance_id:
-                continue
+    def _scan_usb_pnp_entities_uncached(self) -> list[PnPEntity]:
+        candidates: list[PnPEntity] = []
+        candidates.extend(self._wmi_provider.Win32_PnPEntity(PNPClass="USB"))
+        candidates.extend(self._wmi_provider.Win32_PnPEntity(PNPClass="DiskDrive"))
 
-            if not self._is_usb_candidate(candidate):
-                continue
-            entities.append(candidate)
+        entities: list[PnPEntity] = []
+        for candidate in candidates:
+            if self._is_usb_candidate(candidate):
+                entities.append(candidate)
 
         return entities
 
-    def _is_usb_candidate(self, candidate: _PnPEntity) -> bool:
+    def _is_usb_candidate(self, candidate: PnPEntity) -> bool:
         instance_id = str(getattr(candidate, "PNPDeviceID", "") or "")
         if instance_id.startswith("USB"):
             return True
