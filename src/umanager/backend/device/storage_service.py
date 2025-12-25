@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Protocol
+from typing import Any, Optional, Protocol
 
 import wmi
 
@@ -43,75 +43,89 @@ class _StorageScanResult:
 
 
 class UsbStorageDeviceService(UsbStorageDeviceProtocol):
-    _wmi_provider = wmi.WMI()
+    _wmi_provider: Any
     _base_device_service: UsbBaseDeviceService
-    _cached_device_ids: list[UsbDeviceId]
-    _cached_volumes_by_instance_id: dict[str, list[UsbVolumeInfo]]
-    _cached_disk_drives: list[_WmiDiskDrive]
+    _usb_device_ids_cache: Optional[list[UsbDeviceId]]
+    _usb_volumes_map_cache: Optional[dict[str, list[UsbVolumeInfo]]]
+    _usb_disk_drives_cache: Optional[list[_WmiDiskDrive]]
 
     def __init__(self, base_device_service: UsbBaseDeviceService) -> None:
+        self._wmi_provider = wmi.WMI()
         self._base_device_service = base_device_service
-        self._cached_device_ids = []
-        self._cached_volumes_by_instance_id = {}
-        self._cached_disk_drives = []
+        self._usb_device_ids_cache = None
+        self._usb_volumes_map_cache = None
+        self._usb_disk_drives_cache = None
 
     def refresh(self) -> None:
         self._base_device_service.refresh()
 
-        self._cached_disk_drives = self._scan_disk_drives_uncached()
-
-        scan = self._scan_storage_devices_uncached()
-        self._cached_device_ids = scan.device_ids
-        self._cached_volumes_by_instance_id = scan.volumes_by_instance_id
-
-    def get_disk_drives(self) -> list[_WmiDiskDrive]:
-        return self._cached_disk_drives
+        self._usb_device_ids_cache = None
+        self._usb_volumes_map_cache = None
+        self._usb_disk_drives_cache = None
 
     def list_storage_device_ids(self) -> list[UsbDeviceId]:
-        res = list(self._cached_device_ids)
-        res.sort(key=lambda d: d.instance_id.casefold())
-        return res
+        return self._get_usb_device_ids()
 
     def get_storage_device_info(self, device_id: UsbDeviceId) -> UsbStorageDeviceInfo:
-        if not any(d.instance_id == device_id.instance_id for d in self._cached_device_ids):
+        if not any(d.instance_id == device_id.instance_id for d in self._get_usb_device_ids()):
             raise FileNotFoundError(f"USB storage device not found: {device_id.instance_id}")
 
         base = self._base_device_service.get_base_device_info(device_id)
-        volumes = list(self._cached_volumes_by_instance_id.get(device_id.instance_id, []))
+        volumes = self._get_usb_volumes_map().get(device_id.instance_id, [])
         return UsbStorageDeviceInfo(base=base, volumes=volumes)
 
-    def _scan_storage_devices_uncached(self) -> _StorageScanResult:
+    def _get_usb_device_ids(self) -> list[UsbDeviceId]:
+        if not self._usb_device_ids_cache:
+            scan = self._scan_usb_storage_devices_uncached()
+            self._usb_device_ids_cache = scan.device_ids
+            self._usb_device_ids_cache.sort(key=lambda d: d.instance_id.casefold())
+            self._usb_volumes_map_cache = scan.volumes_by_instance_id
+
+        return self._usb_device_ids_cache
+
+    def _get_usb_volumes_map(self) -> dict[str, list[UsbVolumeInfo]]:
+        if not self._usb_volumes_map_cache:
+            scan = self._scan_usb_storage_devices_uncached()
+            self._usb_volumes_map_cache = scan.volumes_by_instance_id
+            self._usb_device_ids_cache = scan.device_ids
+            self._usb_device_ids_cache.sort(key=lambda d: d.instance_id.casefold())
+
+        return self._usb_volumes_map_cache
+
+    def _get_usb_disk_drives(self) -> list[_WmiDiskDrive]:
+        if not self._usb_disk_drives_cache:
+            self._usb_disk_drives_cache = self._scan_usb_disk_drives_uncached()
+
+        return self._usb_disk_drives_cache
+
+    def _scan_usb_storage_devices_uncached(self) -> _StorageScanResult:
         entities = self._base_device_service.get_usb_pnp_entities()
 
         storage_instance_ids: list[str] = []
-        for e in entities:
-            instance_id = getattr(e, "PNPDeviceID", None)
-            if not instance_id:
-                continue
-            if self._is_storage_pnp_entity(e):
+        for entity in entities:
+            if self._is_usb_storage_pnp_entity(entity):
+                instance_id = entity.PNPDeviceID
                 storage_instance_ids.append(instance_id)
 
         device_ids: list[UsbDeviceId] = []
         volumes_by_instance_id: dict[str, list[UsbVolumeInfo]] = {}
 
         disk_volume_map: dict[str, list[UsbVolumeInfo]] = {}
-        for disk in self._iter_usb_disk_drives():
-            instance_id = getattr(disk, "PNPDeviceID", None)
-            if not instance_id:
-                continue
+        for disk in self._get_usb_disk_drives():
+            instance_id = disk.PNPDeviceID
             disk_volume_map[instance_id] = self._get_volumes_for_disk(disk)
 
         for instance_id in storage_instance_ids:
             device_ids.append(UsbDeviceId(instance_id=instance_id))
-            volumes_by_instance_id[instance_id] = list(disk_volume_map.get(instance_id, []))
+            volumes_by_instance_id[instance_id] = disk_volume_map.get(instance_id, [])
 
         return _StorageScanResult(
             device_ids=device_ids,
             volumes_by_instance_id=volumes_by_instance_id,
         )
 
-    def _is_storage_pnp_entity(self, entity: _PnPEntity) -> bool:
-        instance_id = str(getattr(entity, "PNPDeviceID", "") or "")
+    def _is_usb_storage_pnp_entity(self, entity: _PnPEntity) -> bool:
+        instance_id = entity.PNPDeviceID
         if instance_id.upper().startswith("USBSTOR\\"):
             return True
 
@@ -122,25 +136,8 @@ class UsbStorageDeviceService(UsbStorageDeviceProtocol):
 
         return False
 
-    def _iter_usb_disk_drives(self) -> list[_WmiDiskDrive]:
-        disks = self.get_disk_drives()
-
-        res: list[_WmiDiskDrive] = []
-        for d in disks:
-            pnp = str(getattr(d, "PNPDeviceID", "") or "")
-            if not pnp:
-                continue
-
-            if pnp.upper().startswith("USBSTOR\\"):
-                res.append(d)
-
-        return res
-
-    def _scan_disk_drives_uncached(self) -> list[_WmiDiskDrive]:
-        try:
-            return list(self._wmi_provider.Win32_DiskDrive())
-        except Exception:
-            return []
+    def _scan_usb_disk_drives_uncached(self) -> list[_WmiDiskDrive]:
+        return self._wmi_provider.Win32_DiskDrive(InterfaceType="USB")
 
     def _get_volumes_for_disk(self, disk: _WmiDiskDrive) -> list[UsbVolumeInfo]:
         volumes: list[UsbVolumeInfo] = []
