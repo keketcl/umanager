@@ -10,7 +10,7 @@ from .protocol import UsbBaseDeviceInfo, UsbBaseDeviceProtocol, UsbDeviceId
 from .registry import RegistryDeviceUtil
 
 
-class _PnPEntity(Protocol):
+class PnPEntity(Protocol):
     PNPDeviceID: str
     Name: Optional[str]
     Manufacturer: Optional[str]
@@ -34,24 +34,24 @@ class UsbBaseDeviceService(UsbBaseDeviceProtocol):
     _PID_PATTERN = re.compile(r"PID_([0-9A-Fa-f]{4})")
 
     _wmi_provider = wmi.WMI()
+    _cached_usb_pnp_entities: list[PnPEntity] = []
 
     def __init__(self) -> None:
-        self._cached_usb_pnp_entities: list[_PnPEntity] | None = None
         self.refresh()
 
     def refresh(self) -> None:
         self._cached_usb_pnp_entities = self._scan_usb_pnp_entities_uncached()
 
     def list_base_device_ids(self) -> list[UsbDeviceId]:
-        entities = self._scan_usb_pnp_entities()
+        entities = self.get_usb_pnp_entities()
         res = [UsbDeviceId(instance_id=e.PNPDeviceID) for e in entities]
 
         res.sort(key=lambda d: d.instance_id.casefold())
         return res
 
     def get_base_device_info(self, device_id: UsbDeviceId) -> UsbBaseDeviceInfo:
-        entity: _PnPEntity | None = None
-        for candidate in self._scan_usb_pnp_entities():
+        entity: PnPEntity | None = None
+        for candidate in self.get_usb_pnp_entities():
             if getattr(candidate, "PNPDeviceID", None) == device_id.instance_id:
                 entity = candidate
                 break
@@ -102,14 +102,11 @@ class UsbBaseDeviceService(UsbBaseDeviceProtocol):
             description=description or name,
         )
 
-    def _scan_usb_pnp_entities(self) -> list[_PnPEntity]:
-        if self._cached_usb_pnp_entities is None:
-            self.refresh()
-        assert self._cached_usb_pnp_entities is not None
+    def get_usb_pnp_entities(self) -> list[PnPEntity]:
         return self._cached_usb_pnp_entities
 
-    def _scan_usb_pnp_entities_uncached(self) -> list[_PnPEntity]:
-        entities: list[_PnPEntity] = []
+    def _scan_usb_pnp_entities_uncached(self) -> list[PnPEntity]:
+        entities: list[PnPEntity] = []
 
         for candidate in self._wmi_provider.Win32_PnPEntity():
             instance_id = getattr(candidate, "PNPDeviceID", None)
@@ -122,7 +119,7 @@ class UsbBaseDeviceService(UsbBaseDeviceProtocol):
 
         return entities
 
-    def _is_usb_candidate(self, candidate: _PnPEntity) -> bool:
+    def _is_usb_candidate(self, candidate: PnPEntity) -> bool:
         instance_id = str(getattr(candidate, "PNPDeviceID", "") or "")
         if instance_id.startswith("USB"):
             return True
