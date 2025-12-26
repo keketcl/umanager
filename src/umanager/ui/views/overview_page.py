@@ -13,7 +13,7 @@ from umanager.ui.widgets import (
 )
 
 
-class OverviewPage(QWidget):
+class OverviewPageView(QWidget):
     """总览页视图，显示所有 USB 设备信息。
 
     架构：

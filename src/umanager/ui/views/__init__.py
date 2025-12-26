@@ -1,3 +1,3 @@
-from .overview_page import OverviewPage
+from .overview_page import OverviewPageView
 
-__all__ = ["OverviewPage"]
+__all__ = ["OverviewPageView"]
