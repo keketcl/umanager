@@ -5,6 +5,7 @@ from typing import Callable, Optional
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from umanager.backend.device import UsbBaseDeviceProtocol, UsbStorageDeviceProtocol
+from umanager.ui.dialogs import DeviceDetailDialog
 from umanager.ui.states import OverviewStateManager
 from umanager.ui.widgets import (
     DeviceInfoListWidget,
