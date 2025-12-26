@@ -6,7 +6,7 @@ from typing import Callable, Optional
 import pythoncom
 from PySide6 import QtCore
 
-from ...backend.device import (
+from umanager.backend.device import (
     UsbBaseDeviceInfo,
     UsbBaseDeviceProtocol,
     UsbStorageDeviceInfo,

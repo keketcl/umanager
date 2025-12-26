@@ -1,17 +1,17 @@
 from PySide6.QtWidgets import QApplication
 
 from umanager.backend.device import UsbBaseDeviceService, UsbStorageDeviceService
-from umanager.ui.views import OverviewPage
+from umanager.ui.views import OverviewPageView
 
 if __name__ == "__main__":
     app = QApplication([])
 
     # 创建总览页，传递工厂函数
-    overview = OverviewPage(
+    overview = OverviewPageView(
         base_service_factory=lambda: UsbBaseDeviceService(),
         storage_service_factory=lambda base: UsbStorageDeviceService(base),
     )
-    overview.setWindowTitle("USB Manager - 总览（状态管理重构版）")
+    overview.setWindowTitle("USB Manager - 总览")
 
     # 使用状态管理器的信号进行测试
     sm = overview.state_manager()
