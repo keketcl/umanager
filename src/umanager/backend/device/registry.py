@@ -7,6 +7,15 @@ from dataclasses import dataclass
 from typing import Optional
 
 
+@dataclass(frozen=True, slots=True)
+class DeviceEjectResult:
+    success: bool
+    attempted_instance_id: str
+    config_ret: int
+    veto_type: Optional[int] = None
+    veto_name: Optional[str] = None
+
+
 class _GUID(ctypes.Structure):
     _fields_ = [
         ("Data1", ctypes.c_ulong),
@@ -129,6 +138,27 @@ class RegistryDeviceUtil:
         CM_Locate_DevNodeW: Callable[..., int]
         CM_Get_Parent: Callable[..., int]
         CM_Get_Device_IDW: Callable[..., int]
+        CM_Request_Device_EjectW: Callable[..., int]
+
+    # cfgmgr32 constants
+    _CR_SUCCESS = 0x00000000
+    _CR_REMOVE_VETOED = 0x00000017
+    _CM_LOCATE_DEVNODE_NORMAL = 0x00000000
+
+    # PNP_VETO_TYPE values (subset)
+    PNP_VetoTypeUnknown = 0
+    PNP_VetoLegacyDevice = 1
+    PNP_VetoPendingClose = 2
+    PNP_VetoWindowsApp = 3
+    PNP_VetoWindowsService = 4
+    PNP_VetoOutstandingOpen = 5
+    PNP_VetoDevice = 6
+    PNP_VetoDriver = 7
+    PNP_VetoIllegalDeviceRequest = 8
+    PNP_VetoInsufficientPower = 9
+    PNP_VetoNonDisableable = 10
+    PNP_VetoLegacyDriver = 11
+    PNP_VetoInsufficientRights = 12
 
     @classmethod
     def _get_cfgmgr32_functions(cls) -> "_CfgMgr32Functions":
@@ -162,12 +192,88 @@ class RegistryDeviceUtil:
         ]
         CM_Get_Device_IDW.restype = ctypes.c_ulong
 
+        CM_Request_Device_EjectW = cfg.CM_Request_Device_EjectW
+        CM_Request_Device_EjectW.argtypes = [
+            ctypes.c_ulong,
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.c_wchar_p,
+            ctypes.c_ulong,
+            ctypes.c_ulong,
+        ]
+        CM_Request_Device_EjectW.restype = ctypes.c_ulong
+
         cls._cfg_fns = cls._CfgMgr32Functions(
             CM_Locate_DevNodeW=CM_Locate_DevNodeW,
             CM_Get_Parent=CM_Get_Parent,
             CM_Get_Device_IDW=CM_Get_Device_IDW,
+            CM_Request_Device_EjectW=CM_Request_Device_EjectW,
         )
         return cls._cfg_fns
+
+    @classmethod
+    def request_device_eject(cls, instance_id: str) -> DeviceEjectResult:
+        normalized = cls._normalize_instance_id(instance_id)
+
+        last_result = DeviceEjectResult(
+            success=False,
+            attempted_instance_id=normalized,
+            config_ret=cls._CR_SUCCESS,
+        )
+
+        for candidate_id in cls._iter_instance_id_with_ancestors(normalized):
+            res = cls._request_device_eject_single(candidate_id)
+            last_result = res
+            if res.success:
+                return res
+
+            # If vetoed or not removable, trying parent may help.
+            # Keep going until ancestors are exhausted.
+
+        return last_result
+
+    @classmethod
+    def _request_device_eject_single(cls, instance_id: str) -> DeviceEjectResult:
+        cfg = cls._get_cfgmgr32_functions()
+
+        devinst = ctypes.c_ulong(0)
+        cr = cfg.CM_Locate_DevNodeW(
+            ctypes.byref(devinst),
+            cls._normalize_instance_id(instance_id),
+            cls._CM_LOCATE_DEVNODE_NORMAL,
+        )
+        if cr != cls._CR_SUCCESS:
+            return DeviceEjectResult(
+                success=False,
+                attempted_instance_id=instance_id,
+                config_ret=int(cr),
+            )
+
+        veto_type = ctypes.c_int(0)
+        veto_name_buf = ctypes.create_unicode_buffer(1024)
+        cr = cfg.CM_Request_Device_EjectW(
+            devinst.value,
+            ctypes.byref(veto_type),
+            veto_name_buf,
+            ctypes.c_ulong(len(veto_name_buf)),
+            ctypes.c_ulong(0),
+        )
+
+        if cr == cls._CR_SUCCESS:
+            return DeviceEjectResult(
+                success=True,
+                attempted_instance_id=instance_id,
+                config_ret=int(cr),
+            )
+
+        veto_name = veto_name_buf.value or None
+        # Only meaningful when vetoed, but harmless to return for other failures.
+        return DeviceEjectResult(
+            success=False,
+            attempted_instance_id=instance_id,
+            config_ret=int(cr),
+            veto_type=int(veto_type.value) if veto_type is not None else None,
+            veto_name=veto_name,
+        )
 
     @classmethod
     def _iter_instance_id_with_ancestors(cls, instance_id: str, *, max_depth: int = 10):
