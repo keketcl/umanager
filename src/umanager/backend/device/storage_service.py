@@ -8,11 +8,13 @@ import wmi
 
 from .base_service import UsbBaseDeviceService
 from .protocol import (
+    DeviceEjectResult,
     UsbDeviceId,
     UsbStorageDeviceInfo,
     UsbStorageDeviceProtocol,
     UsbVolumeInfo,
 )
+from .registry import RegistryDeviceUtil
 
 
 class _WmiDiskDrive(Protocol):
@@ -73,6 +75,15 @@ class UsbStorageDeviceService(UsbStorageDeviceProtocol):
         base = self._base_device_service.get_base_device_info(device_id)
         volumes = self._get_usb_volumes_map().get(device_id.instance_id, [])
         return UsbStorageDeviceInfo(base=base, volumes=volumes)
+
+    def eject_storage_device(self, device_id: UsbDeviceId) -> DeviceEjectResult:
+        if not any(d.instance_id == device_id.instance_id for d in self._get_usb_device_ids()):
+            raise FileNotFoundError(f"USB storage device not found: {device_id.instance_id}")
+
+        result = RegistryDeviceUtil.request_device_eject(device_id.instance_id)
+        if result.success:
+            self.refresh()
+        return result
 
     def _get_usb_device_ids(self) -> list[UsbDeviceId]:
         if not self._usb_device_ids_cache:

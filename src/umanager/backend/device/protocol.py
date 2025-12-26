@@ -6,6 +6,15 @@ from typing import Optional, Protocol
 
 
 @dataclass(frozen=True, slots=True)
+class DeviceEjectResult:
+    success: bool
+    attempted_instance_id: str
+    config_ret: int
+    veto_type: Optional[int] = None
+    veto_name: Optional[str] = None
+
+
+@dataclass(frozen=True, slots=True)
 class UsbDeviceId:
     instance_id: str
 
@@ -55,3 +64,5 @@ class UsbStorageDeviceProtocol(Protocol):
     def get_storage_device_info(self, device_id: UsbDeviceId) -> UsbStorageDeviceInfo: ...
 
     def list_storage_device_ids(self) -> list[UsbDeviceId]: ...
+
+    def eject_storage_device(self, device_id: UsbDeviceId) -> DeviceEjectResult: ...
