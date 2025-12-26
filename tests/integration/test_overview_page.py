@@ -6,10 +6,13 @@ from umanager.ui.views import OverviewPageView
 if __name__ == "__main__":
     app = QApplication([])
 
-    # 创建总览页，传递工厂函数
+    base_service = UsbBaseDeviceService()
+    storage_service = UsbStorageDeviceService(base_service)
+
+    # 创建总览页，直接注入服务实例
     overview = OverviewPageView(
-        base_service_factory=lambda: UsbBaseDeviceService(),
-        storage_service_factory=lambda base: UsbStorageDeviceService(base),
+        base_service=base_service,
+        storage_service=storage_service,
     )
     overview.setWindowTitle("USB Manager - 总览")
 

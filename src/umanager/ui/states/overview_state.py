@@ -75,13 +75,13 @@ class OverviewStateManager(QtCore.QObject):
     def __init__(
         self,
         parent: QtCore.QObject,
-        base_service_factory: Callable[[], UsbBaseDeviceProtocol],
-        storage_service_factory: Callable[[UsbBaseDeviceProtocol], UsbStorageDeviceProtocol],
+        base_service: UsbBaseDeviceProtocol,
+        storage_service: UsbStorageDeviceProtocol,
     ) -> None:
         super().__init__(parent)
         self._state = OverviewState()
-        self._base_service_factory = base_service_factory
-        self._storage_service_factory = storage_service_factory
+        self._base_service = base_service
+        self._storage_service = storage_service
         self._refresh_generation = 0
 
     def state(self) -> OverviewState:
@@ -156,9 +156,8 @@ class OverviewStateManager(QtCore.QObject):
         self.refreshStarted.emit()
 
         def do_refresh() -> tuple[int, list]:
-            # 在工作线程中创建服务实例
-            base_service = self._base_service_factory()
-            storage_service = self._storage_service_factory(base_service)
+            base_service = self._base_service
+            storage_service = self._storage_service
 
             # 刷新设备列表
             base_service.refresh()
@@ -203,7 +202,6 @@ class OverviewStateManager(QtCore.QObject):
     def _on_refresh_failed(self, exc: object) -> None:
         """刷新失败回调。"""
         self._set_scanning(False)
-        self.scanningChanged.emit(False)
         self.refreshFailed.emit(exc)
 
     # --- UI 操作槽 ---

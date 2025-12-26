@@ -50,9 +50,7 @@ if __name__ == "__main__":
         lambda device_id: print(f"✓ 设备请求信号: {device_id.instance_id}")
     )
     sidebar.selection_changed.connect(
-        lambda device_id: print(
-            f"✓ 选中变化: {device_id.instance_id if device_id else '总览'}"
-        )
+        lambda device_id: print(f"✓ 选中变化: {device_id.instance_id if device_id else '总览'}")
     )
 
     # 模拟设备数据
@@ -63,9 +61,7 @@ if __name__ == "__main__":
         _create_mock_storage_device(
             "USB\\VID_ABCD&PID_EFGH\\002", "SanDisk Cruzer", "F:", "SANDISK"
         ),
-        _create_mock_storage_device(
-            "USB\\VID_9999&PID_8888\\003", "External HDD", "G:", "BACKUP"
-        ),
+        _create_mock_storage_device("USB\\VID_9999&PID_8888\\003", "External HDD", "G:", "BACKUP"),
     ]
 
     print("\n=== 初始状态：仅显示总览 ===")

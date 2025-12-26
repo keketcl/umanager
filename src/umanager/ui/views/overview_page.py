@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, Optional
+from typing import Optional
 
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
@@ -30,16 +30,14 @@ class OverviewPageView(QWidget):
 
     def __init__(
         self,
-        base_service_factory: Callable[[], UsbBaseDeviceProtocol],
-        storage_service_factory: Callable[[UsbBaseDeviceProtocol], UsbStorageDeviceProtocol],
+        base_service: UsbBaseDeviceProtocol,
+        storage_service: UsbStorageDeviceProtocol,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
 
         # 创建状态管理器
-        self._state_manager = OverviewStateManager(
-            self, base_service_factory, storage_service_factory
-        )
+        self._state_manager = OverviewStateManager(self, base_service, storage_service)
 
         # 创建 UI 控件
         self._title_bar = OverviewTitleBarWidget()

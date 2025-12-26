@@ -16,9 +16,12 @@ if __name__ == "__main__":
     info_bar.set_subtitle("总览页")
     info_bar.set_status("")
 
+    base_service = UsbBaseDeviceService()
+    storage_service = UsbStorageDeviceService(base_service)
+
     overview = OverviewPageView(
-        base_service_factory=lambda: UsbBaseDeviceService(),
-        storage_service_factory=lambda base: UsbStorageDeviceService(base),
+        base_service=base_service,
+        storage_service=storage_service,
     )
 
     # 信号输出便于观察交互
