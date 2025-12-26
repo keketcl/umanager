@@ -44,7 +44,6 @@ class MainAreaView(QWidget):
         self._filesystem: FileSystemProtocol = filesystem or FileSystemService()
 
         self._state_manager = MainAreaStateManager(self, base_service, storage_service)
-        self._state_manager.stateChanged.connect(self._on_mainarea_state_changed)
 
         self._sidebar = SidebarWidget(self)
         self._sidebar.overview_requested.connect(self.show_overview)
@@ -69,6 +68,9 @@ class MainAreaView(QWidget):
         self._file_pages: dict[UsbDeviceId, FileManagerPageView] = {}
         self._file_page_roots: dict[UsbDeviceId, str | Path | None] = {}
         self._current_device_id: Optional[UsbDeviceId] = None
+
+        # 连接主区域状态变化（放在所有字段初始化之后，避免早到信号访问未初始化属性）
+        self._state_manager.stateChanged.connect(self._on_mainarea_state_changed)
 
         self.show_overview()
         self._state_manager.refresh()
