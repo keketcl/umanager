@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import re
+import threading
 from dataclasses import dataclass
 from typing import Any, Optional, Protocol
 
 import wmi
+import pythoncom  # type: ignore
 
 from .protocol import UsbBaseDeviceInfo, UsbBaseDeviceProtocol, UsbDeviceId
 from .registry import RegistryDeviceUtil
@@ -33,12 +35,20 @@ class UsbBaseDeviceService(UsbBaseDeviceProtocol):
     _VID_PATTERN = re.compile(r"VID_([0-9A-Fa-f]{4})")
     _PID_PATTERN = re.compile(r"PID_([0-9A-Fa-f]{4})")
 
-    _wmi_provider: Any
+    _thread_local: threading.local
     _usb_pnp_entities_cache: Optional[list[PnPEntity]]
 
     def __init__(self) -> None:
-        self._wmi_provider = wmi.WMI()
+        self._thread_local = threading.local()
         self._usb_pnp_entities_cache = None
+
+    def _get_wmi_provider(self) -> Any:
+        provider = getattr(self._thread_local, "wmi_provider", None)
+        if provider is None:
+            pythoncom.CoInitialize()
+            provider = wmi.WMI()
+            setattr(self._thread_local, "wmi_provider", provider)
+        return provider
 
     def refresh(self) -> None:
         self._usb_pnp_entities_cache = None
@@ -110,9 +120,10 @@ class UsbBaseDeviceService(UsbBaseDeviceProtocol):
         return self._usb_pnp_entities_cache
 
     def _scan_usb_pnp_entities_uncached(self) -> list[PnPEntity]:
+        wmi_provider = self._get_wmi_provider()
         candidates: list[PnPEntity] = []
-        candidates.extend(self._wmi_provider.Win32_PnPEntity(PNPClass="USB"))
-        candidates.extend(self._wmi_provider.Win32_PnPEntity(PNPClass="DiskDrive"))
+        candidates.extend(wmi_provider.Win32_PnPEntity(PNPClass="USB"))
+        candidates.extend(wmi_provider.Win32_PnPEntity(PNPClass="DiskDrive"))
 
         entities: list[PnPEntity] = []
         for candidate in candidates:

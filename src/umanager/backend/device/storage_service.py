@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional, Protocol
 
 import wmi
+import pythoncom  # type: ignore
 
 from .base_service import UsbBaseDeviceService
 from .protocol import (
@@ -45,18 +47,26 @@ class _StorageScanResult:
 
 
 class UsbStorageDeviceService(UsbStorageDeviceProtocol):
-    _wmi_provider: Any
+    _thread_local: threading.local
     _base_device_service: UsbBaseDeviceService
     _usb_device_ids_cache: Optional[list[UsbDeviceId]]
     _usb_volumes_map_cache: Optional[dict[str, list[UsbVolumeInfo]]]
     _usb_disk_drives_cache: Optional[list[_WmiDiskDrive]]
 
     def __init__(self, base_device_service: UsbBaseDeviceService) -> None:
-        self._wmi_provider = wmi.WMI()
+        self._thread_local = threading.local()
         self._base_device_service = base_device_service
         self._usb_device_ids_cache = None
         self._usb_volumes_map_cache = None
         self._usb_disk_drives_cache = None
+
+    def _get_wmi_provider(self) -> Any:
+        provider = getattr(self._thread_local, "wmi_provider", None)
+        if provider is None:
+            pythoncom.CoInitialize()
+            provider = wmi.WMI()
+            setattr(self._thread_local, "wmi_provider", provider)
+        return provider
 
     def refresh(self) -> None:
         self._base_device_service.refresh()
@@ -148,7 +158,7 @@ class UsbStorageDeviceService(UsbStorageDeviceProtocol):
         return False
 
     def _scan_usb_disk_drives_uncached(self) -> list[_WmiDiskDrive]:
-        return self._wmi_provider.Win32_DiskDrive(InterfaceType="USB")
+        return self._get_wmi_provider().Win32_DiskDrive(InterfaceType="USB")
 
     def _get_volumes_for_disk(self, disk: _WmiDiskDrive) -> list[UsbVolumeInfo]:
         volumes: list[UsbVolumeInfo] = []
