@@ -5,6 +5,7 @@ from .file_manager_list import FileManagerListWidget
 from .file_manager_path_bar import FileManagerPathBarWidget
 from .overview_button_bar import OverviewButtonBarWidget
 from .overview_title_bar import OverviewTitleBarWidget
+from .sidebar import SidebarWidget
 
 __all__ = [
     "BasicInfoBarWidget",
@@ -14,4 +15,5 @@ __all__ = [
     "FileManagerPathBarWidget",
     "OverviewButtonBarWidget",
     "OverviewTitleBarWidget",
+    "SidebarWidget",
 ]
