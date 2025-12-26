@@ -24,6 +24,13 @@ class FileManagerState:
     clipboard_path: Optional[Path] = None
     clipboard_mode: Optional[str] = None  # "copy" | "cut"
 
+    # Async status
+    is_refreshing: bool = False
+    refresh_error: Optional[object] = None
+    active_operations: tuple[str, ...] = ()
+    last_operation: Optional[str] = None
+    last_operation_error: Optional[object] = None
+
     def selected_path(self) -> Optional[Path]:
         return None if self.selected_entry is None else self.selected_entry.path
 
@@ -63,15 +70,15 @@ class _OperationHandler(QtCore.QObject):
 
     @QtCore.Slot(object)
     def on_finished(self, result: object) -> None:
+        self._manager._on_operation_finished(self._name, result)
         if self._on_success is not None:
             self._on_success(result)
-        self._manager.operationFinished.emit(self._name)
         self._manager._active_operation_handlers.discard(self)
         self.deleteLater()
 
     @QtCore.Slot(object)
     def on_error(self, exc: object) -> None:
-        self._manager.operationFailed.emit(self._name, exc)
+        self._manager._on_operation_failed(self._name, exc)
         self._manager._active_operation_handlers.discard(self)
         self.deleteLater()
 
@@ -79,26 +86,8 @@ class _OperationHandler(QtCore.QObject):
 class FileManagerStateManager(QtCore.QObject):
     stateChanged = QtCore.Signal(object)
 
-    currentDirectoryChanged = QtCore.Signal(object)
-    entriesChanged = QtCore.Signal(object)
-    showHiddenChanged = QtCore.Signal(bool)
-    selectedEntryChanged = QtCore.Signal(object)
-
-    refreshStarted = QtCore.Signal(object)
-    refreshFinished = QtCore.Signal(object)
-    refreshFailed = QtCore.Signal(object)
-
-    refreshRequested = QtCore.Signal(object, bool)
-
-    # UI should connect these to show modal dialogs.
-    createFileDialogRequested = QtCore.Signal(object)  # current_directory
-    renameDialogRequested = QtCore.Signal(object)  # selected_entry
-
-    clipboardChanged = QtCore.Signal(object, object)  # (clipboard_path, clipboard_mode)
-
-    operationStarted = QtCore.Signal(str)
-    operationFinished = QtCore.Signal(str)
-    operationFailed = QtCore.Signal(str, object)
+    createFileDialogRequested = QtCore.Signal(object)
+    renameDialogRequested = QtCore.Signal(object)
 
     _state: FileManagerState
     _filesystem_service: FileSystemProtocol
@@ -129,7 +118,6 @@ class FileManagerStateManager(QtCore.QObject):
                 new_state = replace(new_state, selected_entry=None)
 
         self._set_state(new_state)
-        self.currentDirectoryChanged.emit(self._state.current_directory)
         self.refresh()
 
     @QtCore.Slot(bool)
@@ -137,7 +125,6 @@ class FileManagerStateManager(QtCore.QObject):
         if show_hidden == self._state.show_hidden:
             return
         self._set_state(replace(self._state, show_hidden=show_hidden))
-        self.showHiddenChanged.emit(self._state.show_hidden)
         self.refresh()
 
     @QtCore.Slot(object)
@@ -161,35 +148,29 @@ class FileManagerStateManager(QtCore.QObject):
                 selected_entry=selected_entry,
             )
         )
-        self.entriesChanged.emit(self._state.entries)
-        self.selectedEntryChanged.emit(self._state.selected_entry)
 
     @QtCore.Slot(object)
     def set_selected_entry(self, entry: Optional[FileEntry]) -> None:
         if entry == self._state.selected_entry:
             return
         self._set_state(replace(self._state, selected_entry=entry))
-        self.selectedEntryChanged.emit(self._state.selected_entry)
 
     def refresh(self) -> None:
         directory = self._state.current_directory
         if directory is None:
             return
 
-        filesystem = self._filesystem_service
-        if filesystem is None:
-            self.refreshRequested.emit(directory, self._state.show_hidden)
-            return
-
         self._refresh_generation += 1
         generation = self._refresh_generation
         include_hidden = self._state.show_hidden
 
-        self.refreshStarted.emit(directory)
+        if not self._state.is_refreshing or self._state.refresh_error is not None:
+            self._set_state(replace(self._state, is_refreshing=True, refresh_error=None))
 
         def do_list() -> tuple[int, Path, bool, list[FileEntry]]:
-            entries = filesystem.list_directory(
-                directory, ListOptions(include_hidden=include_hidden)
+            entries = self._filesystem_service.list_directory(
+                directory,
+                ListOptions(include_hidden=include_hidden),
             )
             return generation, directory, include_hidden, entries
 
@@ -211,21 +192,38 @@ class FileManagerStateManager(QtCore.QObject):
         if self._state.show_hidden != include_hidden:
             return
 
-        self.set_entries(entries)
+        entries_tuple = tuple(entries)
+
+        selected_path = self._state.selected_path()
+        selected_entry: Optional[FileEntry] = None
+        if selected_path is not None:
+            for entry in entries_tuple:
+                if entry.path == selected_path:
+                    selected_entry = entry
+                    break
 
         if self._pending_select_path is not None:
             target = self._pending_select_path
             self._pending_select_path = None
-            for entry in self._state.entries:
+            for entry in entries_tuple:
                 if entry.path == target:
-                    self.set_selected_entry(entry)
+                    selected_entry = entry
                     break
 
-        self.refreshFinished.emit(self._state.current_directory)
+        self._set_state(
+            replace(
+                self._state,
+                entries=entries_tuple,
+                selected_entry=selected_entry,
+                is_refreshing=False,
+                refresh_error=None,
+            )
+        )
 
     @QtCore.Slot(object)
     def _on_refresh_failed(self, exc: object) -> None:
-        self.refreshFailed.emit(exc)
+        if self._state.is_refreshing or self._state.refresh_error != exc:
+            self._set_state(replace(self._state, is_refreshing=False, refresh_error=exc))
 
     def _set_state(self, state: FileManagerState) -> None:
         self._state = state
@@ -235,7 +233,36 @@ class FileManagerStateManager(QtCore.QObject):
         if path == self._state.clipboard_path and mode == self._state.clipboard_mode:
             return
         self._set_state(replace(self._state, clipboard_path=path, clipboard_mode=mode))
-        self.clipboardChanged.emit(self._state.clipboard_path, self._state.clipboard_mode)
+
+    def _start_operation(self, name: str) -> None:
+        active = set(self._state.active_operations)
+        if name in active:
+            return
+        active.add(name)
+        self._set_state(
+            replace(
+                self._state,
+                active_operations=tuple(sorted(active)),
+            )
+        )
+
+    def _finish_operation(self, name: str, *, error: Optional[object]) -> None:
+        active = set(self._state.active_operations)
+        active.discard(name)
+        self._set_state(
+            replace(
+                self._state,
+                active_operations=tuple(sorted(active)),
+                last_operation=name,
+                last_operation_error=error,
+            )
+        )
+
+    def _on_operation_finished(self, name: str, _result: object) -> None:
+        self._finish_operation(name, error=None)
+
+    def _on_operation_failed(self, name: str, exc: object) -> None:
+        self._finish_operation(name, error=exc)
 
     def _run_filesystem_operation(
         self,
@@ -244,7 +271,7 @@ class FileManagerStateManager(QtCore.QObject):
         *,
         on_success: Optional[Callable[[object], None]] = None,
     ) -> None:
-        self.operationStarted.emit(name)
+        self._start_operation(name)
 
         task = _AsyncCall(func)
 

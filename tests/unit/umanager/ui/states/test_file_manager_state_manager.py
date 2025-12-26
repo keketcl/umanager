@@ -12,7 +12,7 @@ from umanager.backend.filesystem.protocol import (
     FileEntry,
     FileSystemProtocol,
 )
-from umanager.ui.states import FileManagerStateManager
+from umanager.ui.states import FileManagerState, FileManagerStateManager
 
 
 class FakeFileSystem(FileSystemProtocol):
@@ -226,17 +226,23 @@ class TestRefresh:
     def test_set_current_directory_emits_and_refreshes(self, qapp: QtCore.QCoreApplication) -> None:
         manager, _fs, root, _dst = make_manager(qapp)
 
-        dir_changed = SignalCatcher(manager.currentDirectoryChanged)
-        refresh_finished = SignalCatcher(manager.refreshFinished)
+        state_changed = SignalCatcher(manager.stateChanged)
         try:
             manager.set_current_directory(root)
-            wait_until(lambda: len(refresh_finished.calls) >= 1)
+            wait_until(
+                lambda: (
+                    manager.state().current_directory == root
+                    and not manager.state().is_refreshing
+                    and len(manager.state().entries) == 2
+                )
+            )
 
-            assert dir_changed.calls == [(root,)]
-            assert refresh_finished.calls[-1][0] == root
+            assert any(
+                isinstance(args[0], FileManagerState) and args[0].current_directory == root
+                for args in state_changed.calls
+            )
         finally:
-            dir_changed.disconnect()
-            refresh_finished.disconnect()
+            state_changed.disconnect()
 
         state = manager.state()
         assert state.current_directory == root
@@ -245,19 +251,28 @@ class TestRefresh:
     def test_show_hidden_change_triggers_refresh(self, qapp: QtCore.QCoreApplication) -> None:
         manager, _fs, root, _dst = make_manager(qapp)
 
-        refresh_finished = SignalCatcher(manager.refreshFinished)
-        hidden_changed = SignalCatcher(manager.showHiddenChanged)
+        state_changed = SignalCatcher(manager.stateChanged)
         try:
             manager.set_current_directory(root)
-            wait_until(lambda: len(refresh_finished.calls) >= 1)
-            before = len(refresh_finished.calls)
+            wait_until(
+                lambda: manager.state().current_directory == root
+                and not manager.state().is_refreshing
+            )
 
             manager.set_show_hidden(True)
-            wait_until(lambda: len(hidden_changed.calls) >= 1)
-            wait_until(lambda: len(refresh_finished.calls) >= before + 1)
+            wait_until(lambda: manager.state().show_hidden is True)
+            wait_until(
+                lambda: manager.state().current_directory == root
+                and not manager.state().is_refreshing
+            )
+
+            # Ensure we observed a "refreshing" transition.
+            assert any(
+                isinstance(args[0], FileManagerState) and args[0].is_refreshing
+                for args in state_changed.calls
+            )
         finally:
-            refresh_finished.disconnect()
-            hidden_changed.disconnect()
+            state_changed.disconnect()
 
 
 class TestDialogs:
@@ -265,25 +280,28 @@ class TestDialogs:
         manager, _fs, root, _dst = make_manager(qapp)
         manager.set_current_directory(root)
 
-        refresh_finished = SignalCatcher(manager.refreshFinished)
         requested = SignalCatcher(manager.createFileDialogRequested)
         try:
-            wait_until(lambda: len(refresh_finished.calls) >= 1)
+            wait_until(
+                lambda: manager.state().current_directory == root
+                and not manager.state().is_refreshing
+            )
             manager.request_create_file()
             wait_until(lambda: len(requested.calls) >= 1)
             assert requested.calls[-1][0] == root
         finally:
-            refresh_finished.disconnect()
             requested.disconnect()
 
     def test_request_rename_emits_dialog_signal(self, qapp: QtCore.QCoreApplication) -> None:
         manager, _fs, root, _dst = make_manager(qapp)
 
-        refresh_finished = SignalCatcher(manager.refreshFinished)
         requested = SignalCatcher(manager.renameDialogRequested)
         try:
             manager.set_current_directory(root)
-            wait_until(lambda: len(refresh_finished.calls) >= 1)
+            wait_until(
+                lambda: manager.state().current_directory == root
+                and not manager.state().is_refreshing
+            )
 
             entry_a = next(e for e in manager.state().entries if e.name == "a.txt")
             manager.set_selected_entry(entry_a)
@@ -292,7 +310,6 @@ class TestDialogs:
             wait_until(lambda: len(requested.calls) >= 1)
             assert requested.calls[-1][0].path == entry_a.path
         finally:
-            refresh_finished.disconnect()
             requested.disconnect()
 
 
@@ -300,19 +317,25 @@ class TestOperations:
     def test_create_file_emits_operation_and_refreshes(self, qapp: QtCore.QCoreApplication) -> None:
         manager, fs, root, _dst = make_manager(qapp)
 
-        refresh_finished = SignalCatcher(manager.refreshFinished)
-        op_finished = SignalCatcher(manager.operationFinished)
         try:
             manager.set_current_directory(root)
-            wait_until(lambda: len(refresh_finished.calls) >= 1)
-            before = len(refresh_finished.calls)
+            wait_until(
+                lambda: manager.state().current_directory == root
+                and not manager.state().is_refreshing
+            )
 
             manager.create_file("new.txt")
-            wait_until(lambda: any(args[0] == "create" for args in op_finished.calls))
-            wait_until(lambda: len(refresh_finished.calls) >= before + 1)
+            wait_until(lambda: manager.state().last_operation == "create")
+            wait_until(lambda: manager.state().last_operation_error is None)
+            wait_until(lambda: fs.path_exists(root / "new.txt"))
+            wait_until(
+                lambda: (
+                    manager.state().selected_entry is not None
+                    and manager.state().selected_entry.path == root / "new.txt"
+                )
+            )
         finally:
-            refresh_finished.disconnect()
-            op_finished.disconnect()
+            pass
 
         assert fs.path_exists(root / "new.txt")
         assert manager.state().selected_entry is not None
@@ -321,23 +344,20 @@ class TestOperations:
     def test_delete_selected_removes_file(self, qapp: QtCore.QCoreApplication) -> None:
         manager, fs, root, _dst = make_manager(qapp)
 
-        refresh_finished = SignalCatcher(manager.refreshFinished)
-        op_finished = SignalCatcher(manager.operationFinished)
-        try:
-            manager.set_current_directory(root)
-            wait_until(lambda: len(refresh_finished.calls) >= 1)
-            before = len(refresh_finished.calls)
+        manager.set_current_directory(root)
+        wait_until(
+            lambda: manager.state().current_directory == root and not manager.state().is_refreshing
+        )
 
-            # Select b (no extension)
-            entry_b = next(e for e in manager.state().entries if e.name == "b")
-            manager.set_selected_entry(entry_b)
+        # Select b (no extension)
+        entry_b = next(e for e in manager.state().entries if e.name == "b")
+        manager.set_selected_entry(entry_b)
 
-            manager.delete_selected()
-            wait_until(lambda: any(args[0] == "delete" for args in op_finished.calls))
-            wait_until(lambda: len(refresh_finished.calls) >= before + 1)
-        finally:
-            refresh_finished.disconnect()
-            op_finished.disconnect()
+        manager.delete_selected()
+        wait_until(lambda: manager.state().last_operation == "delete")
+        wait_until(lambda: manager.state().last_operation_error is None)
+        wait_until(lambda: not fs.path_exists(root / "b"))
+        wait_until(lambda: manager.state().selected_entry is None)
 
         assert not fs.path_exists(root / "b")
         assert manager.state().selected_entry is None
@@ -345,52 +365,38 @@ class TestOperations:
     def test_copy_cut_clipboard_is_mutually_exclusive(self, qapp: QtCore.QCoreApplication) -> None:
         manager, _fs, root, _dst = make_manager(qapp)
 
-        refresh_finished = SignalCatcher(manager.refreshFinished)
-        clipboard_changed = SignalCatcher(manager.clipboardChanged)
-        try:
-            manager.set_current_directory(root)
-            wait_until(lambda: len(refresh_finished.calls) >= 1)
+        manager.set_current_directory(root)
+        wait_until(
+            lambda: manager.state().current_directory == root and not manager.state().is_refreshing
+        )
 
-            entry_a = next(e for e in manager.state().entries if e.name == "a.txt")
-            manager.set_selected_entry(entry_a)
+        entry_a = next(e for e in manager.state().entries if e.name == "a.txt")
+        manager.set_selected_entry(entry_a)
 
-            manager.copy_selected()
-            wait_until(
-                lambda: any(
-                    args[0] == entry_a.path and args[1] == "copy"
-                    for args in clipboard_changed.calls
-                )
-            )
+        manager.copy_selected()
+        wait_until(lambda: manager.state().clipboard_path == entry_a.path)
+        wait_until(lambda: manager.state().clipboard_mode == "copy")
 
-            manager.cut_selected()
-            wait_until(
-                lambda: any(
-                    args[0] == entry_a.path and args[1] == "cut" for args in clipboard_changed.calls
-                )
-            )
-        finally:
-            refresh_finished.disconnect()
-            clipboard_changed.disconnect()
+        manager.cut_selected()
+        wait_until(lambda: manager.state().clipboard_path == entry_a.path)
+        wait_until(lambda: manager.state().clipboard_mode == "cut")
 
     def test_rename_selected_renames_file(self, qapp: QtCore.QCoreApplication) -> None:
         manager, fs, root, _dst = make_manager(qapp)
 
-        refresh_finished = SignalCatcher(manager.refreshFinished)
-        op_finished = SignalCatcher(manager.operationFinished)
-        try:
-            manager.set_current_directory(root)
-            wait_until(lambda: len(refresh_finished.calls) >= 1)
-            before = len(refresh_finished.calls)
+        manager.set_current_directory(root)
+        wait_until(
+            lambda: manager.state().current_directory == root and not manager.state().is_refreshing
+        )
 
-            entry_a = next(e for e in manager.state().entries if e.name == "a.txt")
-            manager.set_selected_entry(entry_a)
+        entry_a = next(e for e in manager.state().entries if e.name == "a.txt")
+        manager.set_selected_entry(entry_a)
 
-            manager.rename_selected("renamed.txt")
-            wait_until(lambda: any(args[0] == "rename" for args in op_finished.calls))
-            wait_until(lambda: len(refresh_finished.calls) >= before + 1)
-        finally:
-            refresh_finished.disconnect()
-            op_finished.disconnect()
+        manager.rename_selected("renamed.txt")
+        wait_until(lambda: manager.state().last_operation == "rename")
+        wait_until(lambda: manager.state().last_operation_error is None)
+        wait_until(lambda: not fs.path_exists(root / "a.txt"))
+        wait_until(lambda: fs.path_exists(root / "renamed.txt"))
 
         assert not fs.path_exists(root / "a.txt")
         assert fs.path_exists(root / "renamed.txt")
@@ -398,27 +404,29 @@ class TestOperations:
     def test_paste_copy_copies_and_clears_clipboard(self, qapp: QtCore.QCoreApplication) -> None:
         manager, fs, root, dst = make_manager(qapp)
 
-        refresh_finished = SignalCatcher(manager.refreshFinished)
-        op_finished = SignalCatcher(manager.operationFinished)
-        try:
-            manager.set_current_directory(root)
-            wait_until(lambda: len(refresh_finished.calls) >= 1)
+        manager.set_current_directory(root)
+        wait_until(
+            lambda: manager.state().current_directory == root and not manager.state().is_refreshing
+        )
 
-            entry_a = next(e for e in manager.state().entries if e.name == "a.txt")
-            manager.set_selected_entry(entry_a)
-            manager.copy_selected()
+        entry_a = next(e for e in manager.state().entries if e.name == "a.txt")
+        manager.set_selected_entry(entry_a)
+        manager.copy_selected()
+        wait_until(lambda: manager.state().clipboard_mode == "copy")
 
-            before = len(refresh_finished.calls)
-            manager.set_current_directory(dst)
-            wait_until(lambda: any(args[0] == dst for args in refresh_finished.calls[before:]))
-            before = len(refresh_finished.calls)
+        manager.set_current_directory(dst)
+        wait_until(
+            lambda: manager.state().current_directory == dst and not manager.state().is_refreshing
+        )
 
-            manager.paste()
-            wait_until(lambda: any(args[0] == "paste_copy" for args in op_finished.calls))
-            wait_until(lambda: any(args[0] == dst for args in refresh_finished.calls[before:]))
-        finally:
-            refresh_finished.disconnect()
-            op_finished.disconnect()
+        manager.paste()
+        wait_until(lambda: manager.state().last_operation == "paste_copy")
+        wait_until(lambda: manager.state().last_operation_error is None)
+        wait_until(lambda: fs.path_exists(dst / "a.txt"))
+        wait_until(
+            lambda: manager.state().clipboard_path is None
+            and manager.state().clipboard_mode is None
+        )
 
         assert fs.path_exists(dst / "a.txt")
         assert manager.state().clipboard_path is None
@@ -427,27 +435,30 @@ class TestOperations:
     def test_paste_cut_moves_and_clears_clipboard(self, qapp: QtCore.QCoreApplication) -> None:
         manager, fs, root, dst = make_manager(qapp)
 
-        refresh_finished = SignalCatcher(manager.refreshFinished)
-        op_finished = SignalCatcher(manager.operationFinished)
-        try:
-            manager.set_current_directory(root)
-            wait_until(lambda: len(refresh_finished.calls) >= 1)
+        manager.set_current_directory(root)
+        wait_until(
+            lambda: manager.state().current_directory == root and not manager.state().is_refreshing
+        )
 
-            entry_b = next(e for e in manager.state().entries if e.name == "b")
-            manager.set_selected_entry(entry_b)
-            manager.cut_selected()
+        entry_b = next(e for e in manager.state().entries if e.name == "b")
+        manager.set_selected_entry(entry_b)
+        manager.cut_selected()
+        wait_until(lambda: manager.state().clipboard_mode == "cut")
 
-            before = len(refresh_finished.calls)
-            manager.set_current_directory(dst)
-            wait_until(lambda: any(args[0] == dst for args in refresh_finished.calls[before:]))
-            before = len(refresh_finished.calls)
+        manager.set_current_directory(dst)
+        wait_until(
+            lambda: manager.state().current_directory == dst and not manager.state().is_refreshing
+        )
 
-            manager.paste()
-            wait_until(lambda: any(args[0] == "paste_cut" for args in op_finished.calls))
-            wait_until(lambda: any(args[0] == dst for args in refresh_finished.calls[before:]))
-        finally:
-            refresh_finished.disconnect()
-            op_finished.disconnect()
+        manager.paste()
+        wait_until(lambda: manager.state().last_operation == "paste_cut")
+        wait_until(lambda: manager.state().last_operation_error is None)
+        wait_until(lambda: not fs.path_exists(root / "b"))
+        wait_until(lambda: fs.path_exists(dst / "b"))
+        wait_until(
+            lambda: manager.state().clipboard_path is None
+            and manager.state().clipboard_mode is None
+        )
 
         assert not fs.path_exists(root / "b")
         assert fs.path_exists(dst / "b")
@@ -462,21 +473,17 @@ class TestNavigation:
         fs.add_dir(subdir)
         fs.add_file(subdir / "inside.txt", b"x")
 
-        refresh_finished = SignalCatcher(manager.refreshFinished)
-        dir_changed = SignalCatcher(manager.currentDirectoryChanged)
-        try:
-            manager.set_current_directory(root)
-            wait_until(lambda: any(args[0] == root for args in refresh_finished.calls))
+        manager.set_current_directory(root)
+        wait_until(
+            lambda: manager.state().current_directory == root and not manager.state().is_refreshing
+        )
 
-            entry_subdir = next(e for e in manager.state().entries if e.path == subdir)
-            manager.set_selected_entry(entry_subdir)
+        entry_subdir = next(e for e in manager.state().entries if e.path == subdir)
+        manager.set_selected_entry(entry_subdir)
 
-            manager.enter_selected()
-            wait_until(lambda: any(args[0] == subdir for args in refresh_finished.calls))
-            wait_until(lambda: any(args[0] == subdir for args in dir_changed.calls))
-        finally:
-            refresh_finished.disconnect()
-            dir_changed.disconnect()
+        manager.enter_selected()
+        wait_until(lambda: manager.state().current_directory == subdir)
+        wait_until(lambda: not manager.state().is_refreshing)
 
         assert manager.state().current_directory == subdir
         assert any(e.name == "inside.txt" for e in manager.state().entries)
@@ -484,20 +491,17 @@ class TestNavigation:
     def test_enter_file_opens_file(self, qapp: QtCore.QCoreApplication) -> None:
         manager, fs, root, _dst = make_manager(qapp)
 
-        refresh_finished = SignalCatcher(manager.refreshFinished)
-        op_finished = SignalCatcher(manager.operationFinished)
-        try:
-            manager.set_current_directory(root)
-            wait_until(lambda: any(args[0] == root for args in refresh_finished.calls))
+        manager.set_current_directory(root)
+        wait_until(
+            lambda: manager.state().current_directory == root and not manager.state().is_refreshing
+        )
 
-            entry_a = next(e for e in manager.state().entries if e.name == "a.txt")
-            manager.set_selected_entry(entry_a)
+        entry_a = next(e for e in manager.state().entries if e.name == "a.txt")
+        manager.set_selected_entry(entry_a)
 
-            manager.enter_selected()
-            wait_until(lambda: any(args[0] == "open" for args in op_finished.calls))
-        finally:
-            refresh_finished.disconnect()
-            op_finished.disconnect()
+        manager.enter_selected()
+        wait_until(lambda: manager.state().last_operation == "open")
+        wait_until(lambda: manager.state().last_operation_error is None)
 
         assert manager.state().current_directory == root
         assert fs.opened_files == [root / "a.txt"]
@@ -506,14 +510,13 @@ class TestNavigation:
         manager, _fs, root, _dst = make_manager(qapp)
         parent = root.parent
 
-        refresh_finished = SignalCatcher(manager.refreshFinished)
-        try:
-            manager.set_current_directory(root)
-            wait_until(lambda: any(args[0] == root for args in refresh_finished.calls))
+        manager.set_current_directory(root)
+        wait_until(
+            lambda: manager.state().current_directory == root and not manager.state().is_refreshing
+        )
 
-            manager.go_up()
-            wait_until(lambda: any(args[0] == parent for args in refresh_finished.calls))
-        finally:
-            refresh_finished.disconnect()
+        manager.go_up()
+        wait_until(lambda: manager.state().current_directory == parent)
+        wait_until(lambda: not manager.state().is_refreshing)
 
         assert manager.state().current_directory == parent

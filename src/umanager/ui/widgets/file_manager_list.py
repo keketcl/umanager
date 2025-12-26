@@ -172,7 +172,6 @@ class FileManagerListWidget(QtWidgets.QWidget):
         self._table.installEventFilter(self)
 
         self._state_manager.stateChanged.connect(self._on_state_changed)
-        self._state_manager.selectedEntryChanged.connect(self._sync_selection_from_state)
 
         self._on_state_changed(self._state_manager.state())
 
@@ -199,7 +198,9 @@ class FileManagerListWidget(QtWidgets.QWidget):
 
     @QtCore.Slot(QtCore.QModelIndex, QtCore.QModelIndex)
     def _on_current_changed(
-        self, current: QtCore.QModelIndex, previous: QtCore.QModelIndex
+        self,
+        current: QtCore.QModelIndex,
+        previous: QtCore.QModelIndex,
     ) -> None:
         if self._updating_selection:
             return
