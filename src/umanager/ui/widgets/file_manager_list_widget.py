@@ -168,11 +168,29 @@ class FileManagerListWidget(QtWidgets.QWidget):
         layout.addWidget(self._table)
 
         self._table.selectionModel().currentChanged.connect(self._on_current_changed)
+        self._table.doubleClicked.connect(self._on_double_clicked)
+        self._table.installEventFilter(self)
 
         self._state_manager.stateChanged.connect(self._on_state_changed)
         self._state_manager.selectedEntryChanged.connect(self._sync_selection_from_state)
 
         self._on_state_changed(self._state_manager.state())
+
+    def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:  # noqa: N802
+        if obj is self._table and event.type() == QtCore.QEvent.Type.KeyPress:
+            if not isinstance(event, QtGui.QKeyEvent):
+                return super().eventFilter(obj, event)
+            key_event = event
+            if key_event.key() in {
+                int(QtCore.Qt.Key.Key_Return),
+                int(QtCore.Qt.Key.Key_Enter),
+            }:
+                self._state_manager.enter_selected()
+                return True
+            if key_event.key() == int(QtCore.Qt.Key.Key_Backspace):
+                self._state_manager.go_up()
+                return True
+        return super().eventFilter(obj, event)
 
     def set_directory(self, directory: str | Path | None, *, refresh: bool = False) -> None:
         self._state_manager.set_current_directory(directory)
@@ -187,6 +205,12 @@ class FileManagerListWidget(QtWidgets.QWidget):
             return
         entry = self._model.entry_at(current.row())
         self._state_manager.set_selected_entry(entry)
+
+    @QtCore.Slot(QtCore.QModelIndex)
+    def _on_double_clicked(self, index: QtCore.QModelIndex) -> None:
+        entry = self._model.entry_at(index.row())
+        self._state_manager.set_selected_entry(entry)
+        self._state_manager.enter_selected()
 
     @QtCore.Slot(object)
     def _on_state_changed(self, state: FileManagerState) -> None:

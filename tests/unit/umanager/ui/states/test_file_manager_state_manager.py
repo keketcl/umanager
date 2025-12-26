@@ -19,6 +19,7 @@ class FakeFileSystem(FileSystemProtocol):
     def __init__(self) -> None:
         self._dirs: set[Path] = set()
         self._files: dict[Path, bytes] = {}
+        self.opened_files: list[Path] = []
 
     def add_dir(self, path: Path) -> None:
         self._ensure_dir(path)
@@ -124,6 +125,7 @@ class FakeFileSystem(FileSystemProtocol):
         raise FileNotFoundError(path)
 
     def open_file_external(self, path: str | Path) -> None:  # type: ignore[override]
+        self.opened_files.append(Path(path))
         return
 
     def path_exists(self, path: str | Path) -> bool:  # type: ignore[override]
@@ -207,8 +209,10 @@ def make_manager(
     app: QtCore.QCoreApplication,
 ) -> tuple[FileManagerStateManager, FakeFileSystem, Path, Path]:
     fs = FakeFileSystem()
-    root = Path("root")
-    dst = Path("dst")
+    base = Path("base")
+    root = base / "root"
+    dst = base / "dst"
+    fs.add_dir(base)
     fs.add_dir(root)
     fs.add_dir(dst)
     fs.add_file(root / "a.txt", b"1")
@@ -449,3 +453,67 @@ class TestOperations:
         assert fs.path_exists(dst / "b")
         assert manager.state().clipboard_path is None
         assert manager.state().clipboard_mode is None
+
+
+class TestNavigation:
+    def test_enter_directory_switches_directory(self, qapp: QtCore.QCoreApplication) -> None:
+        manager, fs, root, _dst = make_manager(qapp)
+        subdir = root / "subdir"
+        fs.add_dir(subdir)
+        fs.add_file(subdir / "inside.txt", b"x")
+
+        refresh_finished = SignalCatcher(manager.refreshFinished)
+        dir_changed = SignalCatcher(manager.currentDirectoryChanged)
+        try:
+            manager.set_current_directory(root)
+            wait_until(lambda: any(args[0] == root for args in refresh_finished.calls))
+
+            entry_subdir = next(e for e in manager.state().entries if e.path == subdir)
+            manager.set_selected_entry(entry_subdir)
+
+            manager.enter_selected()
+            wait_until(lambda: any(args[0] == subdir for args in refresh_finished.calls))
+            wait_until(lambda: any(args[0] == subdir for args in dir_changed.calls))
+        finally:
+            refresh_finished.disconnect()
+            dir_changed.disconnect()
+
+        assert manager.state().current_directory == subdir
+        assert any(e.name == "inside.txt" for e in manager.state().entries)
+
+    def test_enter_file_opens_file(self, qapp: QtCore.QCoreApplication) -> None:
+        manager, fs, root, _dst = make_manager(qapp)
+
+        refresh_finished = SignalCatcher(manager.refreshFinished)
+        op_finished = SignalCatcher(manager.operationFinished)
+        try:
+            manager.set_current_directory(root)
+            wait_until(lambda: any(args[0] == root for args in refresh_finished.calls))
+
+            entry_a = next(e for e in manager.state().entries if e.name == "a.txt")
+            manager.set_selected_entry(entry_a)
+
+            manager.enter_selected()
+            wait_until(lambda: any(args[0] == "open" for args in op_finished.calls))
+        finally:
+            refresh_finished.disconnect()
+            op_finished.disconnect()
+
+        assert manager.state().current_directory == root
+        assert fs.opened_files == [root / "a.txt"]
+
+    def test_go_up_goes_to_parent(self, qapp: QtCore.QCoreApplication) -> None:
+        manager, _fs, root, _dst = make_manager(qapp)
+        parent = root.parent
+
+        refresh_finished = SignalCatcher(manager.refreshFinished)
+        try:
+            manager.set_current_directory(root)
+            wait_until(lambda: any(args[0] == root for args in refresh_finished.calls))
+
+            manager.go_up()
+            wait_until(lambda: any(args[0] == parent for args in refresh_finished.calls))
+        finally:
+            refresh_finished.disconnect()
+
+        assert manager.state().current_directory == parent

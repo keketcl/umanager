@@ -370,6 +370,36 @@ class FileManagerStateManager(QtCore.QObject):
             return
         self.renameDialogRequested.emit(entry)
 
+    @QtCore.Slot()
+    def enter_selected(self) -> None:
+        entry = self._state.selected_entry
+        if entry is None:
+            return
+
+        if entry.is_dir:
+            self.set_current_directory(entry.path)
+            return
+
+        path = entry.path
+
+        def do_open() -> object:
+            self._filesystem_service.open_file_external(path)
+            return None
+
+        self._run_filesystem_operation("open", do_open)
+
+    @QtCore.Slot()
+    def go_up(self) -> None:
+        directory = self._state.current_directory
+        if directory is None:
+            return
+
+        parent = directory.parent
+        if parent == directory:
+            return
+
+        self.set_current_directory(parent)
+
     @QtCore.Slot(str)
     def rename_selected(self, new_name: str) -> None:
         entry = self._state.selected_entry
