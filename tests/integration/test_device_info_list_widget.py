@@ -1,10 +1,6 @@
-from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout
+from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 
-from umanager.backend.device import (
-    UsbBaseDeviceService,
-    UsbStorageDeviceService,
-    UsbDeviceId,
-)
+from umanager.backend.device import UsbBaseDeviceService, UsbStorageDeviceService
 from umanager.ui.widgets import DeviceInfoListWidget
 
 

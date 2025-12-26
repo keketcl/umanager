@@ -14,7 +14,9 @@ DeviceItem = Union[UsbBaseDeviceInfo, UsbStorageDeviceInfo]
 class _DeviceInfoTableModel(QAbstractTableModel):
     """表格模型，用于展示 USB 设备信息（基础 + 存储）。"""
 
-    def __init__(self, devices: Optional[List[DeviceRow]] = None, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self, devices: Optional[List[DeviceRow]] = None, parent: Optional[QWidget] = None
+    ) -> None:
         super().__init__(parent)
         self._devices: list[DeviceRow] = list(devices) if devices else []
         self._columns: list[tuple[str, Callable[[DeviceRow], str]]] = [
@@ -117,7 +119,9 @@ class DeviceInfoListWidget(QWidget):
     """设备信息列表控件，基于表格布局，适配 Overview 页。"""
 
     device_activated = Signal(object, object)  # (UsbBaseDeviceInfo, Optional[UsbStorageDeviceInfo])
-    selection_changed = Signal(object, object)  # (UsbBaseDeviceInfo | None, UsbStorageDeviceInfo | None)
+    selection_changed = Signal(
+        object, object
+    )  # (UsbBaseDeviceInfo | None, UsbStorageDeviceInfo | None)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -165,7 +169,7 @@ class DeviceInfoListWidget(QWidget):
 
 
 def _bytes_to_gb_str(value: int) -> str:
-    gb = value / (1024 ** 3)
+    gb = value / (1024**3)
     return f"{gb:.1f}"
 
 
@@ -179,4 +183,3 @@ def _to_device_row(device: DeviceItem) -> DeviceRow:
     if isinstance(device, UsbStorageDeviceInfo):
         return device.base, device
     return device, None
-
