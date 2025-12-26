@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Callable, Optional
+from typing import Optional
 
 from PySide6 import QtCore
 
 from umanager.backend.device import (
     DeviceEjectResult,
     UsbBaseDeviceInfo,
-    UsbBaseDeviceProtocol,
+    UsbDeviceId,
     UsbStorageDeviceInfo,
-    UsbStorageDeviceProtocol,
 )
+
+from .mainarea_state import MainAreaState, MainAreaStateManager
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,33 +30,6 @@ class OverviewState:
     last_operation: Optional[str] = None  # "refresh" | "eject"
     last_operation_error: Optional[object] = None
     last_eject_result: Optional[DeviceEjectResult] = None
-
-
-class _AsyncCallSignals(QtCore.QObject):
-    finished = QtCore.Signal(object)
-    error = QtCore.Signal(object)
-
-
-class _AsyncCall(QtCore.QRunnable):
-    def __init__(self, func: Callable[[], object]) -> None:
-        super().__init__()
-        self._func = func
-        self.signals = _AsyncCallSignals()
-
-    @QtCore.Slot()
-    def run(self) -> None:
-        try:
-            result = self._func()
-        except Exception as exc:  # noqa: BLE001
-            try:
-                self.signals.error.emit(exc)
-            except RuntimeError:
-                pass
-            return
-        try:
-            self.signals.finished.emit(result)
-        except RuntimeError:
-            pass
 
 
 class OverviewStateManager(QtCore.QObject):
@@ -80,15 +54,14 @@ class OverviewStateManager(QtCore.QObject):
     def __init__(
         self,
         parent: QtCore.QObject,
-        base_service: UsbBaseDeviceProtocol,
-        storage_service: UsbStorageDeviceProtocol,
+        mainarea_state_manager: MainAreaStateManager,
     ) -> None:
         super().__init__(parent)
         self._state = OverviewState()
-        self._base_service = base_service
-        self._storage_service = storage_service
-        self._refresh_generation = 0
-        self._eject_generation = 0
+        self._mainarea = mainarea_state_manager
+        self._last_seen_mainarea_op: Optional[str] = None
+
+        self._mainarea.stateChanged.connect(self._on_mainarea_state_changed)
 
     def state(self) -> OverviewState:
         """获取当前状态（只读）。"""
@@ -101,57 +74,10 @@ class OverviewStateManager(QtCore.QObject):
         self._state = state
         self.stateChanged.emit(self._state)
 
-    def _start_operation(self, name: str) -> None:
-        active = set(self._state.active_operations)
-        if name in active:
-            return
-        active.add(name)
-        self._set_state(
-            replace(
-                self._state,
-                active_operations=tuple(sorted(active)),
-            )
-        )
-
-    def _finish_operation(
-        self,
-        name: str,
-        *,
-        error: Optional[object],
-        eject_result: Optional[DeviceEjectResult] = None,
-    ) -> None:
-        active = set(self._state.active_operations)
-        active.discard(name)
-
-        state = replace(
-            self._state,
-            active_operations=tuple(sorted(active)),
-            last_operation=name,
-            last_operation_error=error,
-        )
-        if name == "eject":
-            state = replace(state, last_eject_result=eject_result)
-        if name == "refresh":
-            state = replace(state, refresh_error=error)
-
-        self._set_state(state)
-
     @QtCore.Slot(object)
     def set_devices(self, devices: list | tuple) -> None:
-        """设置设备列表，并且无论是否变化都清除扫描状态。
-
-        说明：
-        - 之前若设备列表不变会提前返回，导致 `is_scanning` 保持为 True，阻止再次刷新。
-        - 现在即使设备列表内容未发生变化，也会将扫描状态置为 False 并发射相应信号。
-        """
-        devices_tuple = tuple(devices)
-        count = len(devices_tuple)
-
-        # 始终清除扫描状态；如设备列表变化则一并更新设备与计数
-        new_state = replace(self._state, is_scanning=False)
-        if devices_tuple != self._state.devices or count != self._state.device_count:
-            new_state = replace(new_state, devices=devices_tuple, device_count=count)
-        self._set_state(new_state)
+        """兼容旧调用：Overview 不再直接维护设备列表。"""
+        _ = devices
 
     @QtCore.Slot(object, object)
     def set_selected_device(
@@ -165,89 +91,46 @@ class OverviewStateManager(QtCore.QObject):
         self._set_state(replace(self._state, selected_device=new_selection))
 
     def _set_scanning(self, is_scanning: bool) -> None:
-        """设置扫描状态。"""
-        if is_scanning == self._state.is_scanning:
-            return
-        self._set_state(replace(self._state, is_scanning=is_scanning))
+        """兼容旧调用：扫描态来自 MainAreaStateManager。"""
+        _ = is_scanning
 
     # --- 异步操作 ---
 
     @QtCore.Slot()
     def refresh(self) -> None:
-        """刷新设备列表（异步）。"""
-        if self._state.is_scanning:
-            return  # 已有刷新任务在进行中
-
-        self._refresh_generation += 1
-        generation = self._refresh_generation
-
-        self._start_operation("refresh")
-        self._set_state(
-            replace(
-                self._state,
-                is_scanning=True,
-                refresh_error=None,
-            )
-        )
-
-        def do_refresh() -> tuple[int, list]:
-            base_service = self._base_service
-            storage_service = self._storage_service
-
-            # 刷新设备列表
-            base_service.refresh()
-            storage_service.refresh()
-
-            base_ids = base_service.list_base_device_ids()
-            storage_ids = {i.instance_id for i in storage_service.list_storage_device_ids()}
-
-            devices = []
-            for dev_id in base_ids:
-                base_info = base_service.get_base_device_info(dev_id)
-                if dev_id.instance_id in storage_ids:
-                    try:
-                        storage_info = storage_service.get_storage_device_info(dev_id)
-                        devices.append(storage_info)
-                    except Exception:
-                        devices.append(base_info)
-                else:
-                    devices.append(base_info)
-
-            return generation, devices
-
-        task = _AsyncCall(do_refresh)
-        task.signals.finished.connect(self._on_refresh_finished)
-        task.signals.error.connect(self._on_refresh_failed)
-        QtCore.QThreadPool.globalInstance().start(task)
+        """刷新设备列表（委托给 MainAreaStateManager）。"""
+        self._mainarea.refresh()
 
     @QtCore.Slot(object)
-    def _on_refresh_finished(self, result: object) -> None:
-        """刷新完成回调。"""
-        if not isinstance(result, tuple) or len(result) != 2:
+    def _on_mainarea_state_changed(self, state: object) -> None:
+        if not isinstance(state, MainAreaState):
             return
 
-        generation, devices = result
-        if generation != self._refresh_generation:
-            return  # 忽略过时的结果
+        # 刷新完成后不保留总览选中（按既定规则）。
+        selected_device = self._state.selected_device
+        if (
+            state.last_operation == "refresh"
+            and state.last_operation != self._last_seen_mainarea_op
+            and not state.is_scanning
+        ):
+            selected_device = None
 
-        devices_tuple = tuple(devices)
-        count = len(devices_tuple)
+        self._last_seen_mainarea_op = state.last_operation
+
         self._set_state(
             replace(
                 self._state,
-                devices=devices_tuple,
-                device_count=count,
-                is_scanning=False,
-                refresh_error=None,
+                devices=state.devices,
+                device_count=state.device_count,
+                is_scanning=state.is_scanning,
+                refresh_error=state.refresh_error,
+                active_operations=state.active_operations,
+                last_operation=state.last_operation,
+                last_operation_error=state.last_operation_error,
+                last_eject_result=state.last_eject_result,
+                selected_device=selected_device,
             )
         )
-        self._finish_operation("refresh", error=None)
-
-    @QtCore.Slot(object)
-    def _on_refresh_failed(self, exc: object) -> None:
-        """刷新失败回调。"""
-        self._set_state(replace(self._state, is_scanning=False, refresh_error=exc))
-        self._finish_operation("refresh", error=exc)
 
     # --- UI 操作槽 ---
 
@@ -270,9 +153,7 @@ class OverviewStateManager(QtCore.QObject):
 
     @QtCore.Slot()
     def request_eject(self) -> None:
-        """安全弹出选中的存储设备（异步）。"""
-        if self._state.is_scanning:
-            return
+        """安全弹出选中的存储设备（委托给 MainAreaStateManager）。"""
         if self._state.selected_device is None:
             return
 
@@ -283,54 +164,8 @@ class OverviewStateManager(QtCore.QObject):
         # 保持兼容：仍然发射 ejectRequested（若外部有人监听）。
         self.ejectRequested.emit(base, storage)
 
-        self._eject_generation += 1
-        generation = self._eject_generation
-
-        self._start_operation("eject")
-        self._set_state(
-            replace(
-                self._state,
-                is_scanning=True,
-                last_eject_result=None,
-            )
-        )
-
-        def do_eject() -> tuple[int, DeviceEjectResult]:
-            result = self._storage_service.eject_storage_device(storage.base.id)
-            return generation, result
-
-        task = _AsyncCall(do_eject)
-        task.signals.finished.connect(self._on_eject_finished)
-        task.signals.error.connect(self._on_eject_failed)
-        QtCore.QThreadPool.globalInstance().start(task)
-
-    @QtCore.Slot(object)
-    def _on_eject_finished(self, payload: object) -> None:
-        if not isinstance(payload, tuple) or len(payload) != 2:
-            self._set_state(replace(self._state, is_scanning=False))
-            self._finish_operation("eject", error=RuntimeError("invalid eject payload"))
-            return
-
-        generation, result = payload
-        if generation != self._eject_generation:
-            return
-
-        if not isinstance(result, DeviceEjectResult):
-            self._set_state(replace(self._state, is_scanning=False))
-            self._finish_operation("eject", error=RuntimeError("invalid eject result type"))
-            return
-
-        self._set_state(replace(self._state, is_scanning=False, last_eject_result=result))
-        self._finish_operation("eject", error=None, eject_result=result)
-
-        # 成功后刷新设备列表，让 UI 体现设备已移除。
-        if result.success:
-            self.refresh()
-
-    @QtCore.Slot(object)
-    def _on_eject_failed(self, exc: object) -> None:
-        self._set_state(replace(self._state, is_scanning=False))
-        self._finish_operation("eject", error=exc)
+        device_id: UsbDeviceId = storage.base.id
+        self._mainarea.eject_storage_device(device_id)
 
     @QtCore.Slot(object, object)
     def handle_device_activated(

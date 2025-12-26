@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from umanager.backend.device import UsbBaseDeviceProtocol, UsbStorageDeviceProtocol
 from umanager.ui.dialogs import DeviceDetailDialog
-from umanager.ui.states import OverviewState, OverviewStateManager
+from umanager.ui.states import MainAreaStateManager, OverviewState, OverviewStateManager
 from umanager.ui.widgets import (
     DeviceInfoListWidget,
     OverviewButtonBarWidget,
@@ -36,8 +36,11 @@ class OverviewPageView(QWidget):
     ) -> None:
         super().__init__(parent)
 
-        # 创建状态管理器
-        self._state_manager = OverviewStateManager(self, base_service, storage_service)
+        # MainArea 状态（最小版）：负责刷新/扫描与设备列表
+        self._mainarea_state_manager = MainAreaStateManager(self, base_service, storage_service)
+
+        # Overview 状态：仅保留选中与意图发射；其余字段来自 MainAreaState
+        self._state_manager = OverviewStateManager(self, self._mainarea_state_manager)
 
         # 创建 UI 控件
         self._title_bar = OverviewTitleBarWidget()
@@ -73,6 +76,10 @@ class OverviewPageView(QWidget):
     def state_manager(self) -> OverviewStateManager:
         """获取状态管理器（用于外部连接信号）。"""
         return self._state_manager
+
+    def mainarea_state_manager(self) -> MainAreaStateManager:
+        """获取 MainArea 状态管理器（用于外部连接信号）。"""
+        return self._mainarea_state_manager
 
     def refresh(self) -> None:
         """刷新设备列表（委托给状态管理器）。"""
