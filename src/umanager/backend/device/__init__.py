@@ -1,5 +1,6 @@
 from .base_service import UsbBaseDeviceService
 from .protocol import (
+    DeviceEjectResult,
     UsbBaseDeviceInfo,
     UsbBaseDeviceProtocol,
     UsbDeviceId,
@@ -11,6 +12,7 @@ from .storage_service import UsbStorageDeviceService
 
 __all__ = [
     "UsbDeviceId",
+    "DeviceEjectResult",
     "UsbBaseDeviceInfo",
     "UsbBaseDeviceProtocol",
     "UsbBaseDeviceService",

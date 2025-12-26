@@ -6,6 +6,7 @@ from typing import Callable, Optional
 from PySide6 import QtCore
 
 from umanager.backend.device import (
+    DeviceEjectResult,
     UsbBaseDeviceInfo,
     UsbBaseDeviceProtocol,
     UsbStorageDeviceInfo,
@@ -67,6 +68,10 @@ class OverviewStateManager(QtCore.QObject):
     refreshFinished = QtCore.Signal()
     refreshFailed = QtCore.Signal(object)  # Exception
 
+    ejectStarted = QtCore.Signal()
+    ejectFinished = QtCore.Signal(object)  # DeviceEjectResult
+    ejectFailed = QtCore.Signal(object)  # Exception
+
     # 请求信号（UI 应连接这些信号）
     fileManagerRequested = QtCore.Signal(object, object)  # (base, storage)
     detailsRequested = QtCore.Signal(object, object)  # (base, storage)
@@ -83,6 +88,7 @@ class OverviewStateManager(QtCore.QObject):
         self._base_service = base_service
         self._storage_service = storage_service
         self._refresh_generation = 0
+        self._eject_generation = 0
 
     def state(self) -> OverviewState:
         """获取当前状态（只读）。"""
@@ -225,13 +231,59 @@ class OverviewStateManager(QtCore.QObject):
 
     @QtCore.Slot()
     def request_eject(self) -> None:
-        """请求安全弹出设备。"""
+        """安全弹出选中的存储设备（异步）。"""
+        if self._state.is_scanning:
+            return
         if self._state.selected_device is None:
             return
+
         base, storage = self._state.selected_device
-        # 仅存储型设备允许安全弹出
-        if storage is not None:
-            self.ejectRequested.emit(base, storage)
+        if storage is None:
+            return
+
+        # 保持兼容：仍然发射 ejectRequested（若外部有人监听）。
+        self.ejectRequested.emit(base, storage)
+
+        self._eject_generation += 1
+        generation = self._eject_generation
+
+        self._set_scanning(True)
+        self.ejectStarted.emit()
+
+        def do_eject() -> tuple[int, DeviceEjectResult]:
+            result = self._storage_service.eject_storage_device(storage.base.id)
+            return generation, result
+
+        task = _AsyncCall(do_eject)
+        task.signals.finished.connect(self._on_eject_finished)
+        task.signals.error.connect(self._on_eject_failed)
+        QtCore.QThreadPool.globalInstance().start(task)
+
+    @QtCore.Slot(object)
+    def _on_eject_finished(self, payload: object) -> None:
+        if not isinstance(payload, tuple) or len(payload) != 2:
+            self._set_scanning(False)
+            return
+
+        generation, result = payload
+        if generation != self._eject_generation:
+            return
+
+        if not isinstance(result, DeviceEjectResult):
+            self._set_scanning(False)
+            return
+
+        self._set_scanning(False)
+        self.ejectFinished.emit(result)
+
+        # 成功后刷新设备列表，让 UI 体现设备已移除。
+        if result.success:
+            self.refresh()
+
+    @QtCore.Slot(object)
+    def _on_eject_failed(self, exc: object) -> None:
+        self._set_scanning(False)
+        self.ejectFailed.emit(exc)
 
     @QtCore.Slot(object, object)
     def handle_device_activated(
