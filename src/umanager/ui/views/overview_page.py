@@ -32,12 +32,17 @@ class OverviewPageView(QWidget):
         self,
         base_service: UsbBaseDeviceProtocol,
         storage_service: UsbStorageDeviceProtocol,
+        mainarea_state_manager: MainAreaStateManager | None = None,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
 
         # MainArea 状态（最小版）：负责刷新/扫描与设备列表
-        self._mainarea_state_manager = MainAreaStateManager(self, base_service, storage_service)
+        self._mainarea_state_manager = (
+            mainarea_state_manager
+            if mainarea_state_manager is not None
+            else MainAreaStateManager(self, base_service, storage_service)
+        )
 
         # Overview 状态：仅保留选中与意图发射；其余字段来自 MainAreaState
         self._state_manager = OverviewStateManager(self, self._mainarea_state_manager)
