@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from umanager.backend.device import UsbBaseDeviceProtocol, UsbStorageDeviceProtocol
 from umanager.ui.dialogs import DeviceDetailDialog
-from umanager.ui.states import OverviewStateManager
+from umanager.ui.states import OverviewState, OverviewStateManager
 from umanager.ui.widgets import (
     DeviceInfoListWidget,
     OverviewButtonBarWidget,
@@ -47,8 +47,8 @@ class OverviewPageView(QWidget):
         # 连接状态管理器信号到 UI 更新
         self._state_manager.devicesChanged.connect(self._on_devices_changed)
         self._state_manager.deviceCountChanged.connect(self._on_device_count_changed)
+        self._state_manager.stateChanged.connect(self._on_state_changed)
         self._state_manager.scanningChanged.connect(self._on_scanning_changed)
-        self._state_manager.selectedDeviceChanged.connect(self._on_selected_device_changed)
         self._state_manager.detailsRequested.connect(self._on_details_requested)
         # 额外保障：刷新结束/失败时强制复位 UI（避免潜在竞态）
         self._state_manager.refreshFinished.connect(self._on_refresh_finished)
@@ -71,7 +71,7 @@ class OverviewPageView(QWidget):
         self.setLayout(layout)
 
         # 初始化按钮状态
-        self._update_button_states(None, None)
+        self._sync_button_states(self._state_manager.state())
 
         # 自动加载设备列表
         self._state_manager.refresh()
@@ -99,11 +99,11 @@ class OverviewPageView(QWidget):
     def _on_scanning_changed(self, is_scanning: bool) -> None:
         """扫描状态变化时更新 UI。"""
         self._title_bar.set_scanning(is_scanning)
-        self._button_bar.set_refresh_enabled(not is_scanning)
 
-    def _on_selected_device_changed(self, base, storage) -> None:
-        """选中设备变化时更新按钮状态。"""
-        self._update_button_states(base, storage)
+    def _on_state_changed(self, state: object) -> None:
+        if not isinstance(state, OverviewState):
+            return
+        self._sync_button_states(state)
 
     def _on_details_requested(self, base, storage) -> None:
         """查看详情：弹出对话框展示完整信息。"""
@@ -125,13 +125,33 @@ class OverviewPageView(QWidget):
         # 仅存储设备支持安全弹出
         self._button_bar.set_eject_enabled(is_storage)
 
+    def _sync_button_states(self, state: OverviewState) -> None:
+        """统一处理按钮可用性：先处理扫描态，再处理选中态。
+
+        规则：
+        - 扫描/刷新中：所有按钮禁用
+        - 非扫描：整体启用后，再按选中设备设置每个按钮
+        """
+
+        if state.is_scanning:
+            self._button_bar.set_enabled(False)
+            return
+
+        self._button_bar.set_enabled(True)
+
+        if state.selected_device is None:
+            self._update_button_states(None, None)
+            return
+
+        base, storage = state.selected_device
+        self._update_button_states(base, storage)
+
     # --- 刷新流程的兜底复位 ---
     def _on_refresh_finished(self) -> None:
         """刷新结束时，确保扫描指示与按钮状态复位。"""
         self._title_bar.set_scanning(False)
-        self._button_bar.set_refresh_enabled(True)
 
     def _on_refresh_failed(self, exc: object) -> None:
         """刷新失败时，确保扫描指示与按钮状态复位。"""
+        _ = exc
         self._title_bar.set_scanning(False)
-        self._button_bar.set_refresh_enabled(True)
