@@ -7,6 +7,7 @@ from PySide6.QtCore import Slot
 from PySide6.QtWidgets import QInputDialog, QVBoxLayout, QWidget
 
 from umanager.backend.filesystem.protocol import FileEntry, FileSystemProtocol
+from umanager.ui.dialogs import CreateFileDialog
 from umanager.ui.states import FileManagerState, FileManagerStateManager
 from umanager.ui.widgets import (
     FileManagerButtonBarWidget,
@@ -81,10 +82,10 @@ class FileManagerPageView(QWidget):
     @Slot()
     def _on_create_file_dialog_requested(self, directory: object) -> None:
         _ = directory
-        name, ok = QInputDialog.getText(self, "创建文件", "文件名")
-        if not ok:
+        dialog = CreateFileDialog(self)
+        if dialog.exec() != dialog.DialogCode.Accepted:
             return
-        self._state_manager.create_file(name)
+        self._state_manager.create_file(dialog.file_name(), dialog.initial_text())
 
     @Slot()
     def _on_create_directory_dialog_requested(self, directory: object) -> None:

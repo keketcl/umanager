@@ -56,6 +56,26 @@ class FakeFileSystem(FileSystemProtocol):
         self._files.setdefault(path, b"")
         return path
 
+    def create_text_file(
+        self,
+        path: str | Path,
+        text: str,
+        *,
+        encoding: str = "utf-8",
+        exist_ok: bool = True,
+        parents: bool = False,
+    ) -> Path:  # type: ignore[override]
+        path = Path(path)
+        if parents:
+            self._ensure_dir(path.parent)
+        elif path.parent not in self._dirs:
+            raise FileNotFoundError(path.parent)
+
+        if not exist_ok and path in self._files:
+            raise FileExistsError(path)
+        self._files[path] = text.encode(encoding)
+        return path
+
     def make_directory(
         self,
         path: str | Path,
@@ -380,6 +400,22 @@ class TestOperations:
         assert fs.path_exists(root / "new.txt")
         assert manager.state().selected_entry is not None
         assert manager.state().selected_entry.path == root / "new.txt"
+
+    def test_create_file_can_write_initial_text(self, qapp: QtCore.QCoreApplication) -> None:
+        manager, fs, root, _dst = make_manager(qapp)
+
+        manager.set_current_directory(root)
+        wait_until(
+            lambda: manager.state().current_directory == root and not manager.state().is_refreshing
+        )
+
+        manager.create_file("hello.txt", "line1\nline2")
+        wait_until(lambda: manager.state().last_operation == "create")
+        wait_until(lambda: manager.state().last_operation_error is None)
+        wait_until(lambda: fs.path_exists(root / "hello.txt"))
+
+        assert (root / "hello.txt") in fs._files
+        assert fs._files[root / "hello.txt"] == b"line1\nline2"
 
     def test_create_directory_creates_and_selects(self, qapp: QtCore.QCoreApplication) -> None:
         manager, fs, root, _dst = make_manager(qapp)

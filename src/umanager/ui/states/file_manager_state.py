@@ -293,8 +293,8 @@ class FileManagerStateManager(QtCore.QObject):
             return
         self.createDirectoryDialogRequested.emit(self._state.current_directory)
 
-    @QtCore.Slot(str)
-    def create_file(self, file_name: str) -> None:
+    @QtCore.Slot(str, str)
+    def create_file(self, file_name: str, content: str = "") -> None:
         directory = self._state.current_directory
         if directory is None:
             return
@@ -305,7 +305,17 @@ class FileManagerStateManager(QtCore.QObject):
 
         new_path = directory / file_name
 
+        content = content if isinstance(content, str) else ""
+
         def do_create() -> object:
+            if content != "":
+                return self._filesystem_service.create_text_file(
+                    new_path,
+                    content,
+                    encoding="utf-8",
+                    exist_ok=False,
+                    parents=False,
+                )
             return self._filesystem_service.touch_file(new_path, exist_ok=False, parents=False)
 
         def on_success(_result: object) -> None:

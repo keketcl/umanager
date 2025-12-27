@@ -49,6 +49,16 @@ class FileSystemProtocol(Protocol):
         parents: bool = False,
     ) -> Path: ...
 
+    def create_text_file(
+        self,
+        path: str | Path,
+        text: str,
+        *,
+        encoding: str = "utf-8",
+        exist_ok: bool = True,
+        parents: bool = False,
+    ) -> Path: ...
+
     def make_directory(
         self,
         path: str | Path,

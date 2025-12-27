@@ -64,6 +64,24 @@ class FileSystemService:
         path.touch(exist_ok=exist_ok)
         return path
 
+    def create_text_file(
+        self,
+        path: str | Path,
+        text: str,
+        *,
+        encoding: str = "utf-8",
+        exist_ok: bool = True,
+        parents: bool = False,
+    ) -> Path:
+        path = Path(path)
+        if parents:
+            path.parent.mkdir(parents=True, exist_ok=True)
+
+        mode = "w" if exist_ok else "x"
+        with open(path, mode, encoding=encoding) as f:
+            f.write(text)
+        return path
+
     def make_directory(
         self,
         path: str | Path,
