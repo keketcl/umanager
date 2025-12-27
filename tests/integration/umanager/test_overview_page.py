@@ -24,7 +24,7 @@ if __name__ == "__main__":
 
     # 使用状态管理器的信号进行测试
     sm = overview.state_manager()
-    mainarea_sm = overview.mainarea_state_manager()
+    main_area_sm = overview.main_area_state_manager()
 
     # 请求类信号（由按钮触发）
     sm.detailsRequested.connect(
@@ -85,7 +85,7 @@ if __name__ == "__main__":
 
     sm.stateChanged.connect(on_state_changed)
 
-    last_mainarea = {
+    last_main_area = {
         "is_scanning": None,
         "device_count": None,
         "devices_len": None,
@@ -93,7 +93,7 @@ if __name__ == "__main__":
         "last_operation": None,
     }
 
-    def on_mainarea_state_changed(state: object) -> None:
+    def on_main_area_state_changed(state: object) -> None:
         if not hasattr(state, "is_scanning"):
             return
 
@@ -104,33 +104,33 @@ if __name__ == "__main__":
         last_operation = getattr(state, "last_operation")
         last_operation_error = getattr(state, "last_operation_error")
 
-        if last_mainarea["is_scanning"] != is_scanning:
+        if last_main_area["is_scanning"] != is_scanning:
             print(f"[MainArea] 扫描中: {is_scanning}")
-            last_mainarea["is_scanning"] = is_scanning
+            last_main_area["is_scanning"] = is_scanning
 
-        if last_mainarea["device_count"] != device_count:
+        if last_main_area["device_count"] != device_count:
             print(f"[MainArea] 设备数量: {device_count}")
-            last_mainarea["device_count"] = device_count
+            last_main_area["device_count"] = device_count
 
         devices_len = len(devices) if devices is not None else 0
-        if last_mainarea["devices_len"] != devices_len:
+        if last_main_area["devices_len"] != devices_len:
             print(f"[MainArea] 设备列表更新，共 {devices_len} 项")
-            last_mainarea["devices_len"] = devices_len
+            last_main_area["devices_len"] = devices_len
 
         storages_len = len(storages) if storages is not None else 0
-        if last_mainarea["storages_len"] != storages_len:
+        if last_main_area["storages_len"] != storages_len:
             print(f"[MainArea] 存储设备数量: {storages_len}")
-            last_mainarea["storages_len"] = storages_len
+            last_main_area["storages_len"] = storages_len
 
-        if last_operation is not None and last_operation != last_mainarea["last_operation"]:
+        if last_operation is not None and last_operation != last_main_area["last_operation"]:
             if last_operation == "refresh":
                 if last_operation_error is None:
                     print("[MainArea] 刷新完成")
                 else:
                     print(f"[MainArea] 刷新失败: {last_operation_error}")
-            last_mainarea["last_operation"] = last_operation
+            last_main_area["last_operation"] = last_operation
 
-    mainarea_sm.stateChanged.connect(on_mainarea_state_changed)
+    main_area_sm.stateChanged.connect(on_main_area_state_changed)
 
     overview.resize(900, 600)
     overview.show()

@@ -6,13 +6,6 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
 
 class OverviewTitleBarWidget(QWidget):
-    """总览页标题栏，包含标题、设备计数和扫描状态指示。
-
-    布局：
-    - 左侧：标题 "总览" + 设备计数 "(N 个设备)"
-    - 右侧：扫描状态指示 "扫描中..."（可选显示）
-    """
-
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
 
@@ -37,13 +30,10 @@ class OverviewTitleBarWidget(QWidget):
         self.setLayout(layout)
 
     def set_device_count(self, count: int) -> None:
-        """设置设备计数显示。"""
         self._count_label.setText(f"({count} 个设备)")
 
     def set_scanning(self, is_scanning: bool) -> None:
-        """设置扫描状态指示器的可见性。"""
         self._status_label.setVisible(is_scanning)
 
     def set_title(self, title: str) -> None:
-        """设置标题文本（默认为"总览"）。"""
         self._title_label.setText(title)

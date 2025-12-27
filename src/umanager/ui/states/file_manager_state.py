@@ -24,7 +24,6 @@ class FileManagerState:
     clipboard_path: Optional[Path] = None
     clipboard_mode: Optional[str] = None  # "copy" | "cut"
 
-    # Async status
     is_refreshing: bool = False
     refresh_error: Optional[object] = None
     active_operations: tuple[str, ...] = ()
@@ -280,8 +279,6 @@ class FileManagerStateManager(QtCore.QObject):
         task.signals.finished.connect(handler.on_finished)
         task.signals.error.connect(handler.on_error)
         QtCore.QThreadPool.globalInstance().start(task)
-
-    # ---- Slots for external UI/actions ----
 
     @QtCore.Slot()
     def request_create_file(self) -> None:

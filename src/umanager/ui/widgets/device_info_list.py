@@ -12,8 +12,6 @@ DeviceItem = Union[UsbBaseDeviceInfo, UsbStorageDeviceInfo]
 
 
 class _DeviceInfoTableModel(QAbstractTableModel):
-    """表格模型，用于展示 USB 设备信息（基础 + 存储）。"""
-
     def __init__(
         self, devices: Optional[List[DeviceRow]] = None, parent: Optional[QWidget] = None
     ) -> None:
@@ -24,7 +22,7 @@ class _DeviceInfoTableModel(QAbstractTableModel):
             ("序列号", lambda d: d[0].serial_number or ""),
             ("卷标", self._format_volume_labels),
             ("速度 (Mbps)", self._format_speed),
-            ("剩余/容量 (GB)", self._format_capacity),
+            ("剩余容量/总容量 (GB)", self._format_capacity),
         ]
 
     @staticmethod
@@ -43,7 +41,6 @@ class _DeviceInfoTableModel(QAbstractTableModel):
 
     @staticmethod
     def _format_capacity(device: DeviceRow) -> str:
-        """格式化容量显示为 "剩余/容量" 的形式。"""
         _base, storage = device
         volumes = _safe_volumes(storage.volumes if storage else None)
         capacity_strs: list[str] = []
@@ -95,12 +92,8 @@ class _DeviceInfoTableModel(QAbstractTableModel):
 
 
 class DeviceInfoListWidget(QWidget):
-    """设备信息列表控件，基于表格布局，适配 Overview 页。"""
-
-    device_activated = Signal(object, object)  # (UsbBaseDeviceInfo, Optional[UsbStorageDeviceInfo])
-    selection_changed = Signal(
-        object, object
-    )  # (UsbBaseDeviceInfo | None, UsbStorageDeviceInfo | None)
+    device_activated = Signal(object, object)
+    selection_changed = Signal(object, object)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

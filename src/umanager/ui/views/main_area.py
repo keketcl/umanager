@@ -21,16 +21,6 @@ from umanager.ui.widgets.sidebar import SidebarWidget
 
 
 class MainAreaView(QWidget):
-    """主区域：Sidebar + 可变区域（QStackedWidget）。
-
-    当前落地：
-    - MainAreaStateManager 负责刷新/扫描/设备列表（唯一数据源）
-    - Sidebar 作为唯一导航入口
-    - OverviewPage 仅展示 + 发意图（刷新/详情/弹出）
-    - FileManagerPage 按设备缓存创建；设备消失时销毁
-    - 刷新期间禁用 Sidebar + 可变区域
-    """
-
     def __init__(
         self,
         base_service: UsbBaseDeviceProtocol,
@@ -54,7 +44,7 @@ class MainAreaView(QWidget):
         self._overview = OverviewPageView(
             base_service=base_service,
             storage_service=storage_service,
-            mainarea_state_manager=self._state_manager,
+            main_area_state_manager=self._state_manager,
             parent=self,
         )
         self._stack.addWidget(self._overview)
@@ -69,8 +59,7 @@ class MainAreaView(QWidget):
         self._file_page_roots: dict[UsbDeviceId, str | Path | None] = {}
         self._current_device_id: Optional[UsbDeviceId] = None
 
-        # 连接主区域状态变化（放在所有字段初始化之后，避免早到信号访问未初始化属性）
-        self._state_manager.stateChanged.connect(self._on_mainarea_state_changed)
+        self._state_manager.stateChanged.connect(self._on_main_area_state_changed)
 
         self.show_overview()
         self._state_manager.refresh()
@@ -122,18 +111,16 @@ class MainAreaView(QWidget):
         self._sidebar.select_device(device_id)
 
     @Slot(object)
-    def _on_mainarea_state_changed(self, state: object) -> None:
+    def _on_main_area_state_changed(self, state: object) -> None:
         if not isinstance(state, MainAreaState):
             return
 
         self._sidebar.set_devices(state.storages.values())
 
-        # 刷新期间禁用交互（允许关闭窗口由窗口系统负责）。
         enabled = not state.is_scanning
         self._sidebar.setEnabled(enabled)
         self._stack.setEnabled(enabled)
 
-        # 设备消失：销毁对应文件页，并在必要时回到总览。
         existing = set(state.storages.keys())
         removed = [dev_id for dev_id in list(self._file_pages.keys()) if dev_id not in existing]
         for dev_id in removed:

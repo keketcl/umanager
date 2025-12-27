@@ -6,13 +6,11 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from umanager.backend.device import UsbBaseDeviceProtocol, UsbStorageDeviceProtocol
 from umanager.backend.filesystem.protocol import FileSystemProtocol
-from umanager.ui.views.mainarea_view import MainAreaView
+from umanager.ui.views.main_area import MainAreaView
 from umanager.ui.widgets.basic_info_bar import BasicInfoBarWidget
 
 
 class RootWindowView(QWidget):
-    """根窗口（不含状态栏）：基础信息栏 + 主区域。"""
-
     def __init__(
         self,
         base_service: UsbBaseDeviceProtocol,
@@ -24,8 +22,7 @@ class RootWindowView(QWidget):
         super().__init__(parent)
 
         self._info_bar = BasicInfoBarWidget(self)
-        self._info_bar.set_title("USB Manager")
-        self._info_bar.set_subtitle("主界面")
+        self._info_bar.set_title("UManager")
         self._info_bar.set_status("")
 
         self._main_area = MainAreaView(

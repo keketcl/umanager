@@ -4,12 +4,10 @@ from typing import Optional
 
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QVBoxLayout
 
-from ...backend.device import UsbBaseDeviceInfo, UsbStorageDeviceInfo, UsbVolumeInfo
+from umanager.backend.device import UsbBaseDeviceInfo, UsbStorageDeviceInfo, UsbVolumeInfo
 
 
 class DeviceDetailDialog(QDialog):
-    """显示 USB 设备详细信息的对话框（垂直逐行展示）。"""
-
     def __init__(
         self,
         base: UsbBaseDeviceInfo,
@@ -21,16 +19,13 @@ class DeviceDetailDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        # 基础设备信息
         for label, value in self._build_base_lines(base):
             layout.addWidget(QLabel(f"{label}: {value}"))
 
-        # 存储设备信息（若存在）
         if storage is not None:
             for line in self._build_storage_lines(storage):
                 layout.addWidget(QLabel(line))
 
-        # 按钮
         buttons = QDialogButtonBox(QDialogButtonBox.Ok, parent=self)
         buttons.accepted.connect(self.accept)
         layout.addWidget(buttons)
@@ -43,7 +38,6 @@ class DeviceDetailDialog(QDialog):
     def _fmt_hex(val: Optional[str]) -> str:
         if val is None:
             return "-"
-        # 确保统一前缀
         if val.lower().startswith("0x"):
             return val
         return f"0x{val}"
@@ -79,22 +73,13 @@ class DeviceDetailDialog(QDialog):
         lines: list[str] = []
         for idx, vol in enumerate(storage.volumes):
             prefix = f"卷 {idx + 1}"
-            lines.append(
-                f"{prefix}: 卷标={self._fmt(vol.volume_label)} | "
-                f"文件系统={self._fmt(vol.file_system)} | "
-                f"挂载={self._fmt(self._format_mount(vol))}"
-            )
-            lines.append(f"{prefix}: 剩余/容量={self._format_capacity(vol)}")
-        if not lines:
-            lines.append("存储卷信息: -")
+            lines.append(prefix)
+            lines.append(f"  卷标: {self._fmt(vol.volume_label)}")
+            lines.append(f"  文件系统: {self._fmt(vol.file_system)}")
+            lines.append(f"  盘符: {self._fmt(self._format_mount(vol))}")
+            lines.append(f"  剩余容量: {self._fmt_bytes(vol.free_bytes)}")
+            lines.append(f"  总容量: {self._fmt_bytes(vol.total_bytes)}")
         return lines
-
-    def _format_capacity(self, vol: UsbVolumeInfo) -> str:
-        if vol.free_bytes is not None and vol.total_bytes is not None:
-            return f"{self._fmt_bytes(vol.free_bytes)}/{self._fmt_bytes(vol.total_bytes)}"
-        if vol.total_bytes is not None:
-            return f"-/ {self._fmt_bytes(vol.total_bytes)}"
-        return "-/-"
 
     @staticmethod
     def _format_mount(vol: UsbVolumeInfo) -> str:

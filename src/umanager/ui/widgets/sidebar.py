@@ -9,8 +9,6 @@ from umanager.backend.device import UsbDeviceId, UsbStorageDeviceInfo
 
 
 class SidebarWidget(QWidget):
-    """侧边栏：包含总览入口与存储类 USB 设备条目。"""
-
     overview_requested = Signal()
     device_requested = Signal(object)  # UsbDeviceId
     selection_changed = Signal(object)  # Optional[UsbDeviceId]
@@ -31,9 +29,7 @@ class SidebarWidget(QWidget):
 
         self._rebuild_items([], preserve_selection=False)
 
-    # 公共 API
     def set_devices(self, devices: Iterable[UsbStorageDeviceInfo]) -> None:
-        """更新设备列表，保留当前选中设备（若仍存在），否则回到总览。"""
         device_list = list(devices)
         self._rebuild_items(device_list, preserve_selection=True)
 
@@ -47,9 +43,11 @@ class SidebarWidget(QWidget):
         key = device_id.instance_id if isinstance(device_id, UsbDeviceId) else str(device_id)
         self._select_item_by_key(key)
 
-    # 内部逻辑
     def _rebuild_items(
-        self, devices: list[UsbStorageDeviceInfo], *, preserve_selection: bool
+        self,
+        devices: list[UsbStorageDeviceInfo],
+        *,
+        preserve_selection: bool,
     ) -> None:
         prev_selection = self._current_device_key()
 

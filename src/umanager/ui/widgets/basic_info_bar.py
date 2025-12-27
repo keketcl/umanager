@@ -7,12 +7,10 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
 
 class BasicInfoBarWidget(QWidget):
-    """根窗口顶部的基本信息栏（应用标题 + 副标题/状态）。"""
-
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
 
-        self._title_label = QLabel("USB Manager")
+        self._title_label = QLabel("UManager")
         self._title_label.setStyleSheet("font-size: 16pt; font-weight: bold;")
 
         self._subtitle_label = QLabel("")
