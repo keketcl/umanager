@@ -17,7 +17,6 @@ from .main_area_state import MainAreaState, MainAreaStateManager
 
 @dataclass(frozen=True, slots=True)
 class OverviewState:
-
     devices: tuple[UsbBaseDeviceInfo | UsbStorageDeviceInfo, ...] = ()
     selected_device: Optional[tuple[UsbBaseDeviceInfo, Optional[UsbStorageDeviceInfo]]] = None
     is_scanning: bool = False
@@ -62,7 +61,9 @@ class OverviewStateManager(QtCore.QObject):
 
     @QtCore.Slot(object, object)
     def set_selected_device(
-        self, base: Optional[UsbBaseDeviceInfo], storage: Optional[UsbStorageDeviceInfo],
+        self,
+        base: Optional[UsbBaseDeviceInfo],
+        storage: Optional[UsbStorageDeviceInfo],
     ) -> None:
         new_selection = (base, storage) if base is not None else None
         if new_selection == self._state.selected_device:

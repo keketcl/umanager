@@ -64,6 +64,17 @@ class FileSystemService:
         path.touch(exist_ok=exist_ok)
         return path
 
+    def make_directory(
+        self,
+        path: str | Path,
+        *,
+        exist_ok: bool = True,
+        parents: bool = False,
+    ) -> Path:
+        path = Path(path)
+        path.mkdir(parents=parents, exist_ok=exist_ok)
+        return path
+
     def copy_path(
         self,
         src: str | Path,

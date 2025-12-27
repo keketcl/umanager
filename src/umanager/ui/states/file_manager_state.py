@@ -86,6 +86,7 @@ class FileManagerStateManager(QtCore.QObject):
     stateChanged = QtCore.Signal(object)
 
     createFileDialogRequested = QtCore.Signal(object)
+    createDirectoryDialogRequested = QtCore.Signal(object)
     renameDialogRequested = QtCore.Signal(object)
 
     _state: FileManagerState
@@ -286,6 +287,12 @@ class FileManagerStateManager(QtCore.QObject):
             return
         self.createFileDialogRequested.emit(self._state.current_directory)
 
+    @QtCore.Slot()
+    def request_create_directory(self) -> None:
+        if self._state.current_directory is None:
+            return
+        self.createDirectoryDialogRequested.emit(self._state.current_directory)
+
     @QtCore.Slot(str)
     def create_file(self, file_name: str) -> None:
         directory = self._state.current_directory
@@ -306,6 +313,27 @@ class FileManagerStateManager(QtCore.QObject):
             self.refresh()
 
         self._run_filesystem_operation("create", do_create, on_success=on_success)
+
+    @QtCore.Slot(str)
+    def create_directory(self, directory_name: str) -> None:
+        directory = self._state.current_directory
+        if directory is None:
+            return
+
+        directory_name = directory_name.strip()
+        if not directory_name:
+            return
+
+        new_path = directory / directory_name
+
+        def do_create() -> object:
+            return self._filesystem_service.make_directory(new_path, exist_ok=False, parents=False)
+
+        def on_success(_result: object) -> None:
+            self._pending_select_path = new_path
+            self.refresh()
+
+        self._run_filesystem_operation("create_dir", do_create, on_success=on_success)
 
     @QtCore.Slot()
     def delete_selected(self) -> None:

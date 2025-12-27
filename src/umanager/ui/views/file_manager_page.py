@@ -41,6 +41,9 @@ class FileManagerPageView(QWidget):
         self._state_manager.stateChanged.connect(self._on_state_changed)
 
         self._button_bar.create_requested.connect(self._state_manager.request_create_file)
+        self._button_bar.create_directory_requested.connect(
+            self._state_manager.request_create_directory
+        )
         self._button_bar.open_requested.connect(self._state_manager.enter_selected)
         self._button_bar.copy_requested.connect(self._state_manager.copy_selected)
         self._button_bar.cut_requested.connect(self._state_manager.cut_selected)
@@ -49,6 +52,9 @@ class FileManagerPageView(QWidget):
         self._button_bar.rename_requested.connect(self._state_manager.request_rename_selected)
 
         self._state_manager.createFileDialogRequested.connect(self._on_create_file_dialog_requested)
+        self._state_manager.createDirectoryDialogRequested.connect(
+            self._on_create_directory_dialog_requested
+        )
         self._state_manager.renameDialogRequested.connect(self._on_rename_dialog_requested)
 
         self._on_state_changed(self._state_manager.state())
@@ -72,10 +78,18 @@ class FileManagerPageView(QWidget):
     @Slot()
     def _on_create_file_dialog_requested(self, directory: object) -> None:
         _ = directory
-        name, ok = QInputDialog.getText(self, "创建", "文件名")
+        name, ok = QInputDialog.getText(self, "创建文件", "文件名")
         if not ok:
             return
         self._state_manager.create_file(name)
+
+    @Slot()
+    def _on_create_directory_dialog_requested(self, directory: object) -> None:
+        _ = directory
+        name, ok = QInputDialog.getText(self, "创建目录", "目录名")
+        if not ok:
+            return
+        self._state_manager.create_directory(name)
 
     @Slot()
     def _on_rename_dialog_requested(self, entry: object) -> None:

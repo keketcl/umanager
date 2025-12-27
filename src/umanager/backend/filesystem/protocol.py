@@ -49,6 +49,14 @@ class FileSystemProtocol(Protocol):
         parents: bool = False,
     ) -> Path: ...
 
+    def make_directory(
+        self,
+        path: str | Path,
+        *,
+        exist_ok: bool = True,
+        parents: bool = False,
+    ) -> Path: ...
+
     def copy_path(
         self,
         src: str | Path,

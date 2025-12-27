@@ -56,8 +56,30 @@ class FakeFileSystem(FileSystemProtocol):
         self._files.setdefault(path, b"")
         return path
 
+    def make_directory(
+        self,
+        path: str | Path,
+        *,
+        exist_ok: bool = True,
+        parents: bool = False,
+    ) -> Path:  # type: ignore[override]
+        path = Path(path)
+        if parents:
+            self._ensure_dir(path)
+        else:
+            if path.parent not in self._dirs:
+                raise FileNotFoundError(path.parent)
+            if path in self._dirs and not exist_ok:
+                raise FileExistsError(path)
+            self._dirs.add(path)
+        return path
+
     def copy_path(
-        self, src: str | Path, dst: str | Path, *, options: CopyOptions | None = None
+        self,
+        src: str | Path,
+        dst: str | Path,
+        *,
+        options: CopyOptions | None = None,
     ) -> Path:  # type: ignore[override]
         options = options or CopyOptions()
         src = Path(src)
@@ -292,6 +314,24 @@ class TestDialogs:
         finally:
             requested.disconnect()
 
+    def test_request_create_directory_emits_dialog_signal(
+        self, qapp: QtCore.QCoreApplication
+    ) -> None:
+        manager, _fs, root, _dst = make_manager(qapp)
+        manager.set_current_directory(root)
+
+        requested = SignalCatcher(manager.createDirectoryDialogRequested)
+        try:
+            wait_until(
+                lambda: manager.state().current_directory == root
+                and not manager.state().is_refreshing
+            )
+            manager.request_create_directory()
+            wait_until(lambda: len(requested.calls) >= 1)
+            assert requested.calls[-1][0] == root
+        finally:
+            requested.disconnect()
+
     def test_request_rename_emits_dialog_signal(self, qapp: QtCore.QCoreApplication) -> None:
         manager, _fs, root, _dst = make_manager(qapp)
 
@@ -340,6 +380,27 @@ class TestOperations:
         assert fs.path_exists(root / "new.txt")
         assert manager.state().selected_entry is not None
         assert manager.state().selected_entry.path == root / "new.txt"
+
+    def test_create_directory_creates_and_selects(self, qapp: QtCore.QCoreApplication) -> None:
+        manager, fs, root, _dst = make_manager(qapp)
+
+        manager.set_current_directory(root)
+        wait_until(
+            lambda: manager.state().current_directory == root and not manager.state().is_refreshing
+        )
+
+        manager.create_directory("new_folder")
+        wait_until(lambda: manager.state().last_operation == "create_dir")
+        wait_until(lambda: manager.state().last_operation_error is None)
+        wait_until(lambda: fs.path_exists(root / "new_folder"))
+
+        wait_until(
+            lambda: (
+                manager.state().selected_entry is not None
+                and manager.state().selected_entry.path == root / "new_folder"
+                and manager.state().selected_entry.is_dir
+            )
+        )
 
     def test_delete_selected_removes_file(self, qapp: QtCore.QCoreApplication) -> None:
         manager, fs, root, _dst = make_manager(qapp)
