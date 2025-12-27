@@ -1,5 +1,5 @@
 from .file_manager_page import FileManagerPageView
-from .main_area import MainAreaView
+from .mainarea_view import MainAreaView
 from .overview_page import OverviewPageView
 from .root_window import RootWindowView
 

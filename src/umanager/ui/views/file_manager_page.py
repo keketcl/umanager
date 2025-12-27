@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import Slot
+from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import QInputDialog, QVBoxLayout, QWidget
 
 from umanager.backend.filesystem.protocol import FileEntry, FileSystemProtocol
@@ -17,16 +17,20 @@ from umanager.ui.widgets import (
 
 
 class FileManagerPageView(QWidget):
+    refresh_all_requested = Signal()
+
     def __init__(
         self,
         filesystem: FileSystemProtocol,
         *,
         initial_directory: str | Path | None = None,
+        use_unified_refresh: bool = False,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
 
         self._state_manager = FileManagerStateManager(self, filesystem)
+        self._use_unified_refresh = use_unified_refresh
 
         self._path_bar = FileManagerPathBarWidget(self)
         self._button_bar = FileManagerButtonBarWidget(self)
@@ -41,7 +45,10 @@ class FileManagerPageView(QWidget):
         self._path_bar.go_up_requested.connect(self._state_manager.go_up)
         self._state_manager.stateChanged.connect(self._on_state_changed)
 
-        self._button_bar.refresh_requested.connect(self._state_manager.refresh)
+        if self._use_unified_refresh:
+            self._button_bar.refresh_requested.connect(self.refresh_all_requested.emit)
+        else:
+            self._button_bar.refresh_requested.connect(self._state_manager.refresh)
         self._button_bar.create_requested.connect(self._state_manager.request_create_file)
         self._button_bar.create_directory_requested.connect(
             self._state_manager.request_create_directory

@@ -59,6 +59,10 @@ class MainAreaView(QWidget):
         self._file_page_roots: dict[UsbDeviceId, str | Path | None] = {}
         self._current_device_id: Optional[UsbDeviceId] = None
 
+        self._unified_refresh_target: Optional[UsbDeviceId] = None
+        self._unified_refresh_pending = False
+        self._unified_refresh_inflight = False
+
         self._state_manager.stateChanged.connect(self._on_main_area_state_changed)
 
         self.show_overview()
@@ -96,7 +100,21 @@ class MainAreaView(QWidget):
         page = self._file_pages.get(device_id)
         if page is None:
             root_dir = self._storage_root_directory(storage)
-            page = FileManagerPageView(self._filesystem, initial_directory=root_dir, parent=self)
+            page = FileManagerPageView(
+                self._filesystem,
+                initial_directory=root_dir,
+                use_unified_refresh=True,
+                parent=self,
+            )
+
+            page.refresh_all_requested.connect(
+                lambda dev_id=device_id: self._request_unified_refresh(dev_id)
+            )
+
+            page.state_manager().directoryUnavailable.connect(
+                lambda _dir, _exc, dev_id=device_id: self._on_directory_unavailable(dev_id)
+            )
+
             self._file_pages[device_id] = page
             self._file_page_roots[device_id] = root_dir
             self._stack.addWidget(page)
@@ -131,6 +149,66 @@ class MainAreaView(QWidget):
 
         if self._current_device_id is not None and self._current_device_id not in existing:
             self.show_overview()
+
+        if (
+            self._unified_refresh_pending
+            and not state.is_scanning
+            and not self._unified_refresh_inflight
+        ):
+            self._unified_refresh_inflight = True
+            self._unified_refresh_pending = False
+            self._state_manager.refresh()
+            return
+
+        if self._unified_refresh_inflight and not state.is_scanning:
+            self._unified_refresh_inflight = False
+            self._continue_unified_refresh(state)
+
+    def _request_unified_refresh(self, device_id: UsbDeviceId) -> None:
+        self._unified_refresh_target = device_id
+
+        if self._state_manager.state().is_scanning:
+            self._unified_refresh_pending = True
+            return
+
+        self._unified_refresh_inflight = True
+        self._state_manager.refresh()
+
+    def _continue_unified_refresh(self, state: MainAreaState) -> None:
+        device_id = self._unified_refresh_target
+        self._unified_refresh_target = None
+        if device_id is None:
+            return
+
+        if self._current_device_id != device_id:
+            return
+
+        storage = state.storages.get(device_id)
+        if storage is None:
+            self.show_overview()
+            return
+
+        root = self._storage_root_directory(storage)
+        if root is None:
+            self.show_overview()
+            return
+
+        page = self._file_pages.get(device_id)
+        if page is None:
+            self.show_overview()
+            return
+
+        if root != self._file_page_roots.get(device_id):
+            page.set_directory(root)
+            self._file_page_roots[device_id] = root
+            return
+
+        page.state_manager().refresh()
+
+    def _on_directory_unavailable(self, device_id: UsbDeviceId) -> None:
+        if self._current_device_id != device_id:
+            return
+        self.show_overview()
 
     @staticmethod
     def _storage_root_directory(storage: UsbStorageDeviceInfo) -> str | Path | None:

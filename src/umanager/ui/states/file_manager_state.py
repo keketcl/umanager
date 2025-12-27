@@ -15,6 +15,30 @@ from umanager.backend.filesystem.protocol import (
 )
 
 
+class _RefreshFailed(Exception):
+    def __init__(self, generation: int, directory: Path, include_hidden: bool, exc: Exception):
+        super().__init__(str(exc))
+        self.generation = generation
+        self.directory = directory
+        self.include_hidden = include_hidden
+        self.exc = exc
+
+
+def _is_directory_unavailable_error(exc: object) -> bool:
+    if isinstance(exc, (FileNotFoundError, NotADirectoryError)):
+        return True
+
+    winerror = getattr(exc, "winerror", None)
+
+    if isinstance(exc, PermissionError):
+        return winerror in {5}
+
+    if isinstance(exc, OSError):
+        return winerror in {15, 21, 31, 1117, 1167}
+
+    return False
+
+
 @dataclass(frozen=True, slots=True)
 class FileManagerState:
     current_directory: Optional[Path] = None
@@ -84,6 +108,8 @@ class _OperationHandler(QtCore.QObject):
 
 class FileManagerStateManager(QtCore.QObject):
     stateChanged = QtCore.Signal(object)
+
+    directoryUnavailable = QtCore.Signal(object, object)  # (directory, exc)
 
     createFileDialogRequested = QtCore.Signal(object)
     createDirectoryDialogRequested = QtCore.Signal(object)
@@ -168,10 +194,13 @@ class FileManagerStateManager(QtCore.QObject):
             self._set_state(replace(self._state, is_refreshing=True, refresh_error=None))
 
         def do_list() -> tuple[int, Path, bool, list[FileEntry]]:
-            entries = self._filesystem_service.list_directory(
-                directory,
-                ListOptions(include_hidden=include_hidden),
-            )
+            try:
+                entries = self._filesystem_service.list_directory(
+                    directory,
+                    ListOptions(include_hidden=include_hidden),
+                )
+            except Exception as exc:  # noqa: BLE001
+                raise _RefreshFailed(generation, directory, include_hidden, exc) from exc
             return generation, directory, include_hidden, entries
 
         task = _AsyncCall(do_list)
@@ -222,6 +251,22 @@ class FileManagerStateManager(QtCore.QObject):
 
     @QtCore.Slot(object)
     def _on_refresh_failed(self, exc: object) -> None:
+        if isinstance(exc, _RefreshFailed):
+            if exc.generation != self._refresh_generation:
+                return
+            if self._state.current_directory != exc.directory:
+                return
+            if self._state.show_hidden != exc.include_hidden:
+                return
+
+            root_exc = exc.exc
+            if self._state.is_refreshing or self._state.refresh_error != root_exc:
+                self._set_state(replace(self._state, is_refreshing=False, refresh_error=root_exc))
+
+            if _is_directory_unavailable_error(root_exc):
+                self.directoryUnavailable.emit(exc.directory, root_exc)
+            return
+
         if self._state.is_refreshing or self._state.refresh_error != exc:
             self._set_state(replace(self._state, is_refreshing=False, refresh_error=exc))
 
