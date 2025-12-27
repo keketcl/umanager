@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import Slot
+from PySide6.QtCore import QTimer, Slot
 from PySide6.QtWidgets import QHBoxLayout, QStackedWidget, QWidget
 
 from umanager.backend.device import (
@@ -18,6 +18,7 @@ from umanager.ui.states import MainAreaState, MainAreaStateManager
 from umanager.ui.views.file_manager_page import FileManagerPageView
 from umanager.ui.views.overview_page import OverviewPageView
 from umanager.ui.widgets.sidebar import SidebarWidget
+from umanager.util.device_change_watcher import UsbDeviceChangeWatcher
 
 
 class MainAreaView(QWidget):
@@ -63,6 +64,16 @@ class MainAreaView(QWidget):
         self._unified_refresh_pending = False
         self._unified_refresh_inflight = False
 
+        self._auto_refresh_pending = False
+        self._auto_refresh_timer = QTimer(self)
+        self._auto_refresh_timer.setSingleShot(True)
+        self._auto_refresh_timer.setInterval(600)
+        self._auto_refresh_timer.timeout.connect(self._trigger_auto_refresh)
+
+        self._device_change_watcher = UsbDeviceChangeWatcher(parent=self)
+        self._device_change_watcher.deviceChangeDetected.connect(self._on_device_change_detected)
+        self._device_change_watcher.start()
+
         self._state_manager.stateChanged.connect(self._on_main_area_state_changed)
 
         self.show_overview()
@@ -78,6 +89,7 @@ class MainAreaView(QWidget):
         return self._overview
 
     def closeEvent(self, event) -> None:  # noqa: N802
+        self._device_change_watcher.stop()
         self._state_manager.set_closing(True)
         super().closeEvent(event)
 
@@ -160,6 +172,12 @@ class MainAreaView(QWidget):
             self._state_manager.refresh()
             return
 
+        if self._auto_refresh_pending and not state.is_scanning:
+            self._auto_refresh_pending = False
+            if not self._unified_refresh_inflight and not self._unified_refresh_pending:
+                self._state_manager.refresh()
+            return
+
         if self._unified_refresh_inflight and not state.is_scanning:
             self._unified_refresh_inflight = False
             self._continue_unified_refresh(state)
@@ -173,6 +191,19 @@ class MainAreaView(QWidget):
 
         self._unified_refresh_inflight = True
         self._state_manager.refresh()
+
+    def _trigger_auto_refresh(self) -> None:
+        if self._unified_refresh_inflight or self._unified_refresh_pending:
+            return
+
+        if self._state_manager.state().is_scanning:
+            self._auto_refresh_pending = True
+            return
+
+        self._state_manager.refresh()
+
+    def _on_device_change_detected(self) -> None:
+        self._auto_refresh_timer.start()
 
     def _continue_unified_refresh(self, state: MainAreaState) -> None:
         device_id = self._unified_refresh_target
