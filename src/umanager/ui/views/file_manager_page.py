@@ -51,6 +51,7 @@ class FileManagerPageView(QWidget):
         self._button_bar.paste_requested.connect(self._state_manager.paste)
         self._button_bar.delete_requested.connect(self._state_manager.delete_selected)
         self._button_bar.rename_requested.connect(self._state_manager.request_rename_selected)
+        self._button_bar.show_hidden_toggled.connect(self._state_manager.set_show_hidden)
 
         self._state_manager.createFileDialogRequested.connect(self._on_create_file_dialog_requested)
         self._state_manager.createDirectoryDialogRequested.connect(
@@ -75,6 +76,7 @@ class FileManagerPageView(QWidget):
         if not isinstance(state, FileManagerState):
             return
         self._path_bar.set_path(state.current_directory)
+        self._button_bar.set_show_hidden_checked(state.show_hidden)
 
     @Slot()
     def _on_create_file_dialog_requested(self, directory: object) -> None:

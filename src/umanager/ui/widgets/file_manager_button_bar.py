@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QStyle, QToolButton, QWidget
 
 
@@ -16,6 +16,7 @@ class FileManagerButtonBarWidget(QWidget):
     paste_requested = Signal()
     delete_requested = Signal()
     rename_requested = Signal()
+    show_hidden_toggled = Signal(bool)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -87,6 +88,18 @@ class FileManagerButtonBarWidget(QWidget):
         self._rename_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self._rename_btn.setAutoRaise(True)
 
+        self._show_hidden_btn = QToolButton(self)
+        self._show_hidden_btn.setIcon(
+            style.standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
+        )
+        self._show_hidden_btn.setText("显示隐藏文件")
+        self._show_hidden_btn.setToolButtonStyle(button_style)
+        self._show_hidden_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self._show_hidden_btn.setAutoRaise(True)
+        self._show_hidden_btn.setCheckable(True)
+        self._show_hidden_btn.setChecked(False)
+        self._show_hidden_btn.setToolTip("切换是否显示隐藏文件")
+
         self._refresh_btn.clicked.connect(self.refresh_requested.emit)
         self._create_btn.clicked.connect(self.create_requested.emit)
         self._create_dir_btn.clicked.connect(self.create_directory_requested.emit)
@@ -96,6 +109,7 @@ class FileManagerButtonBarWidget(QWidget):
         self._paste_btn.clicked.connect(self.paste_requested.emit)
         self._delete_btn.clicked.connect(self.delete_requested.emit)
         self._rename_btn.clicked.connect(self.rename_requested.emit)
+        self._show_hidden_btn.toggled.connect(self.show_hidden_toggled.emit)
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -110,5 +124,12 @@ class FileManagerButtonBarWidget(QWidget):
         layout.addWidget(self._paste_btn)
         layout.addWidget(self._delete_btn)
         layout.addWidget(self._rename_btn)
+        layout.addWidget(self._show_hidden_btn)
         layout.addStretch(1)
         self.setLayout(layout)
+
+    def set_show_hidden_checked(self, checked: bool) -> None:
+        if self._show_hidden_btn.isChecked() == checked:
+            return
+        with QSignalBlocker(self._show_hidden_btn):
+            self._show_hidden_btn.setChecked(checked)

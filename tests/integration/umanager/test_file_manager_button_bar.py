@@ -21,6 +21,9 @@ if __name__ == "__main__":
     button_bar.paste_requested.connect(lambda: print("Signal: paste_requested"))
     button_bar.delete_requested.connect(lambda: print("Signal: delete_requested"))
     button_bar.rename_requested.connect(lambda: print("Signal: rename_requested"))
+    button_bar.show_hidden_toggled.connect(
+        lambda checked: print(f"Signal: show_hidden_toggled={checked}")
+    )
 
     layout.addWidget(button_bar)
     root.setLayout(layout)
