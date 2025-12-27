@@ -17,16 +17,6 @@ from umanager.backend.device import (
 
 @dataclass(frozen=True, slots=True)
 class MainAreaState:
-    """主区域（MainArea）的全局状态。
-
-    该状态是全局“设备扫描/刷新”的唯一数据源（后续也会承载侧边栏、文件页缓存等）。
-    当前最小落地只包含：
-    - 扫描态
-    - 总览展示用设备列表
-    - 存储设备字典（后续给 Sidebar / FileManager 使用）
-    - 异步操作结果
-    """
-
     is_scanning: bool = False
 
     devices: tuple[UsbBaseDeviceInfo | UsbStorageDeviceInfo, ...] = ()
@@ -70,13 +60,6 @@ class _AsyncCall(QtCore.QRunnable):
 
 
 class MainAreaStateManager(QtCore.QObject):
-    """主区域状态管理器（最小版）。
-
-    说明：
-    - 负责刷新/扫描并维护 devices/storages/is_scanning 等全局状态。
-    - 目前还未包含页面切换、文件页缓存、全局禁用等 UI 行为（后续在 mainarea_view 落地）。
-    """
-
     stateChanged = QtCore.Signal(object)  # MainAreaState
 
     def __init__(
@@ -98,7 +81,6 @@ class MainAreaStateManager(QtCore.QObject):
         return self._state
 
     def set_closing(self, is_closing: bool) -> None:
-        """窗口关闭后标记丢弃异步结果。"""
         self._is_closing = is_closing
 
     def _set_state(self, state: MainAreaState) -> None:
@@ -161,7 +143,6 @@ class MainAreaStateManager(QtCore.QObject):
                 try:
                     storages[dev_id] = storage_service.get_storage_device_info(dev_id)
                 except Exception:
-                    # 某些设备可能在读取存储信息时失败；此时仍允许其以 base 设备展示
                     continue
 
             devices: list[UsbBaseDeviceInfo | UsbStorageDeviceInfo] = []

@@ -44,7 +44,7 @@ class MainAreaView(QWidget):
         self._overview = OverviewPageView(
             base_service=base_service,
             storage_service=storage_service,
-            mainarea_state_manager=self._state_manager,
+            main_area_state_manager=self._state_manager,
             parent=self,
         )
         self._stack.addWidget(self._overview)
@@ -59,7 +59,7 @@ class MainAreaView(QWidget):
         self._file_page_roots: dict[UsbDeviceId, str | Path | None] = {}
         self._current_device_id: Optional[UsbDeviceId] = None
 
-        self._state_manager.stateChanged.connect(self._on_mainarea_state_changed)
+        self._state_manager.stateChanged.connect(self._on_main_area_state_changed)
 
         self.show_overview()
         self._state_manager.refresh()
@@ -111,7 +111,7 @@ class MainAreaView(QWidget):
         self._sidebar.select_device(device_id)
 
     @Slot(object)
-    def _on_mainarea_state_changed(self, state: object) -> None:
+    def _on_main_area_state_changed(self, state: object) -> None:
         if not isinstance(state, MainAreaState):
             return
 

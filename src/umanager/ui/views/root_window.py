@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from umanager.backend.device import UsbBaseDeviceProtocol, UsbStorageDeviceProtocol
 from umanager.backend.filesystem.protocol import FileSystemProtocol
-from umanager.ui.views.mainarea_view import MainAreaView
+from umanager.ui.views.main_area import MainAreaView
 from umanager.ui.widgets.basic_info_bar import BasicInfoBarWidget
 
 

@@ -25,8 +25,8 @@ if __name__ == "__main__":
     )
     window.setWindowTitle("USB Manager - RootWindow")
 
-    mainarea = window.main_area()
-    sm = mainarea.state_manager()
+    main_area = window.main_area()
+    sm = main_area.state_manager()
 
     last: dict[str, object] = {
         "is_scanning": None,

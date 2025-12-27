@@ -19,18 +19,18 @@ class OverviewPageView(QWidget):
         self,
         base_service: UsbBaseDeviceProtocol,
         storage_service: UsbStorageDeviceProtocol,
-        mainarea_state_manager: MainAreaStateManager | None = None,
+        main_area_state_manager: MainAreaStateManager | None = None,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
 
-        self._mainarea_state_manager = (
-            mainarea_state_manager
-            if mainarea_state_manager is not None
+        self._main_area_state_manager = (
+            main_area_state_manager
+            if main_area_state_manager is not None
             else MainAreaStateManager(self, base_service, storage_service)
         )
 
-        self._state_manager = OverviewStateManager(self, self._mainarea_state_manager)
+        self._state_manager = OverviewStateManager(self, self._main_area_state_manager)
 
         self._title_bar = OverviewTitleBarWidget()
         self._device_list = DeviceInfoListWidget()
@@ -58,8 +58,8 @@ class OverviewPageView(QWidget):
     def state_manager(self) -> OverviewStateManager:
         return self._state_manager
 
-    def mainarea_state_manager(self) -> MainAreaStateManager:
-        return self._mainarea_state_manager
+    def main_area_state_manager(self) -> MainAreaStateManager:
+        return self._main_area_state_manager
 
     def refresh(self) -> None:
         self._state_manager.refresh()

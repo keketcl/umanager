@@ -18,14 +18,14 @@ if __name__ == "__main__":
     storage_service = UsbStorageDeviceService(base_service)
     filesystem = FileSystemService()
 
-    mainarea = MainAreaView(
+    main_area = MainAreaView(
         base_service=base_service,
         storage_service=storage_service,
         filesystem=filesystem,
     )
-    mainarea.setWindowTitle("USB Manager - MainArea")
+    main_area.setWindowTitle("USB Manager - MainArea")
 
-    sm = mainarea.state_manager()
+    sm = main_area.state_manager()
 
     last: dict[str, object] = {
         "is_scanning": None,
@@ -74,11 +74,11 @@ if __name__ == "__main__":
 
     sm.stateChanged.connect(on_state_changed)
 
-    sidebar = mainarea.sidebar_widget()
+    sidebar = main_area.sidebar_widget()
     sidebar.overview_requested.connect(lambda: print("[Sidebar] overview_requested"))
     sidebar.device_requested.connect(lambda dev_id: print(f"[Sidebar] device_requested: {dev_id}"))
 
-    mainarea.resize(1000, 650)
-    mainarea.show()
+    main_area.resize(1000, 650)
+    main_area.show()
 
     app.exec()

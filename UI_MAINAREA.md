@@ -1,12 +1,12 @@
 **1）目标与边界**
 
-- **主区域（MainArea）应分为状态（mainarea_state）与 UI （mainarea_view）**：状态（mainarea_state）是唯一数据源**：负责扫描/刷新、维护设备列表、维护文件管理页缓存、负责页面切换与全局禁用。
+- **主区域（MainArea）应分为状态（main_area_state）与 UI （main_area_view）**：状态（main_area_state）是唯一数据源**：负责扫描/刷新、维护设备列表、维护文件管理页缓存、负责页面切换与全局禁用。
 - **侧边栏（Sidebar）是唯一导航入口**：点击“总览/设备”直接触发切页；不与总览页选择联动。
 - **总览页（Overview）是展示 + 意图发射**：显示设备列表/扫描状态；按钮只有 `刷新/详情/安全弹出`；不提供“管理文件”，不触发页面切换。
 - **刷新期间**：禁止除“关闭窗口”外的所有交互（禁用侧边栏 + 可变区域整体）。
 - **关闭语义**：允许关闭，但丢弃异步结果、不更新 UI。
 
-**2）MainArea 的内部状态（即mainarea_state）（建议字段）**
+**2）MainArea 的内部状态（即main_area_state）（建议字段）**
 
 - `is_scanning: bool`：全局扫描态唯一来源
 - `devices: tuple[UsbBaseDeviceInfo|UsbStorageDeviceInfo, ...]`：总览页展示用
@@ -16,7 +16,7 @@
 - `_is_closing: bool`：窗口关闭后丢弃结果
 - `_refresh_generation: int`：可选；若你采用“刷新重入忽略”，这项可以不需要，但建议保留用于安全丢弃过期结果
 
-**3）MainArea 的 UI 结构（即mainarea_view）**
+**3）MainArea 的 UI 结构（即main_area_view）**
 
 - 水平布局：`SidebarWidget` + “可变区域容器”
 - 可变区域容器使用 `QStackedWidget`（推荐）
